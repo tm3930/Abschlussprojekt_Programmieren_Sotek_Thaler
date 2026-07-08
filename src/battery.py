@@ -1,0 +1,119 @@
+from abc import ABC, abstractmethod
+import logging
+ 
+logger = logging.getLogger(__name__)
+ 
+
+class Battery(ABC):
+    """Abstrakte Basisklasse für den Akku-Pack."""
+ 
+    #Definition des Datentyps für die OCV-Tabelle
+    ocv_table: list[tuple[float, float]] = []
+ 
+    @abstractmethod
+    def __init__(
+        self,
+        capacity_Ah: float,
+        internal_resistance: float,
+        num_cells_series: int = 10,
+        initial_soc: float = 1.0,
+        v_min: float = 32.0, #3.2V*10, weil 10 Zellen in Serie
+        v_max: float = 42.0 #4.2V*10, weil 10 Zellen in Serie
+    ) -> None:
+        
+        self.capacity_Ah = capacity_Ah
+        self._capacity_As = capacity_Ah * 3600.0
+        self.internal_resistance = internal_resistance
+        self.num_cells_series = num_cells_series
+        self.v_min = v_min
+        self.v_max = v_max
+
+        #Fehlermeldungen
+        if capacity_Ah <= 0:
+            raise ValueError(f"Kapazität (capacity_Ah) muss größer als 0 sein, aktueller Wert: {capacity_Ah}")
+        
+        if internal_resistance < 0:
+            raise ValueError(
+                f"Innerer Widerstand (internal_resistance_ohm) darf nicht negativ sein, aktueller Wert: {internal_resistance}")
+        
+        if num_cells_series <= 0:
+            raise ValueError(f"Anzahl der Batteriezellen muss größer als 0 sein, aktueller Wert: {num_cells_series}")
+        
+        if v_min > v_max:
+            raise ValueError(f"Minimale Spannung v_min ({v_min}) muss kleiner sein als maximale Spannung vmax ({v_max})")
+
+        #Log-Warnung und Fehlerbehandlung, falls Anfangs-SoC außerhalb des 0.0 - 1.0 Bereiches liegt
+        if not (0.0 <= initial_soc <= 1.0):
+            logger.warning(
+                f"Anfangs-SoC (initial_soc) von {initial_soc} liegt ausserhalb [0.0, 1.0]. Wert wird begrenzt.")
+        self.soc = max(0.0, min(initial_soc, 1.0))
+
+        #Logging über aktuellen Zustand des Akkus
+        logger.info(f"{type(self).__name__}: Kapazität = {capacity_Ah:.1f} Ah, SoC = {self.soc*100:.1f}%")
+ 
+    @abstractmethod
+    def open_circuit_voltage(self) -> float:
+        """Funktion zur Ausgabe der Leerlaufspannung (OCV) bei aktuellem SoC in V.
+        
+        Da dieser Wert in den Unterklassen (LiPo & NMC) ausgeführt wird und nicht in dieser Oberklasse,
+        gibt die Funktion hier nur eine Fehlermeldung aus."""
+
+        raise NotImplementedError
+ 
+    def interpolate_ocv(self, soc: float) -> float:
+        """Funktion zur Interpolation der OCV-Kennlinie.
+
+        Werte außerhalb der vorgegebenen OCV-Tabelle werden auf deren Ränder begrenzt."""
+
+        table = self.ocv_table
+
+        if soc <= table[0][0]:
+            return table[0][1]
+        if soc >= table[-1][0]:
+            return table[-1][1]
+
+        for (s0, v0), (s1, v1) in zip(table, table[1:]):
+            if s0 <= soc <= s1:
+                return v0 + (v1 - v0) * (soc - s0) / (s1 - s0)
+ 
+    def terminal_voltage(self, current: float = 0.0) -> float:
+        """Funktion zur Ausgabe der Spannung unter Last in V."""
+
+        return self.open_circuit_voltage() - self.internal_resistance * current
+
+    def apply_current(self, current: float, duration: float) -> None:
+        """Funktion zur Stromzufuhr über eine gewisse Zeitspanne + Aktualisierung des SoC inkl. Fehlerbehandlung."""
+        
+        if duration < 0:
+            raise ValueError(f"Zeitspanne (duration) darf nicht negativ sein, war {duration}")
+ 
+        new_soc = self.soc - (current * duration) / self._capacity_As
+ 
+        #Log-Warnung und Fehlerbehandlung, falls Akku ent- bzw. überladen ist (SoC außerhalb der 0.0 - 1.0 Grenze)
+        if new_soc < 0.0:
+            logger.warning("Akku während Strumzufuhr (apply_current) vollständig entladen. SoC auf 0.0 gesetzt.")
+            self.soc = 0.0
+        elif new_soc > 1.0:
+            logger.warning("Akku während Strumzufuhr (apply_current) überladen. SoC auf 1.0 begrenzt.")
+            self.soc = 1.0
+        else:
+            self.soc = new_soc
+
+        #Logging über aktuellen SoC-Stand bei Stromzufuhr über gewisse Zeitspanne
+        logger.debug(
+            f"Strom von {current:.2f} A für {duration:.1f} s angewendet. Neuer SoC: {self.soc * 100:.1f}%"
+                     )
+ 
+    def is_empty(self) -> bool:
+        """Funktion zur Überprüfung, falls der Akku leer ist.
+        
+        True wenn leer."""
+
+        return self.soc <= 1e-9
+ 
+    def is_full(self) -> bool:
+        """Funktion zur Überprüfung, falls der Akku voll ist.
+        
+        True wenn voll."""
+
+        return self.soc >= 1.0 - 1e-9
