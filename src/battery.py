@@ -15,7 +15,7 @@ class Battery(ABC):
         self,
         capacity_Ah: float,
         internal_resistance: float,
-        num_cells_series: int = 10,
+        cells_series: int = 10,
         initial_soc: float = 1.0,
         v_min: float = 32.0, #3.2V*10, weil 10 Zellen in Serie
         v_max: float = 42.0 #4.2V*10, weil 10 Zellen in Serie
@@ -24,7 +24,7 @@ class Battery(ABC):
         self.capacity_Ah = capacity_Ah
         self._capacity_As = capacity_Ah * 3600.0
         self.internal_resistance = internal_resistance
-        self.num_cells_series = num_cells_series
+        self.cells_series = cells_series
         self.v_min = v_min
         self.v_max = v_max
 
@@ -36,8 +36,8 @@ class Battery(ABC):
             raise ValueError(
                 f"Innerer Widerstand (internal_resistance_ohm) darf nicht negativ sein, aktueller Wert: {internal_resistance}")
         
-        if num_cells_series <= 0:
-            raise ValueError(f"Anzahl der Batteriezellen muss größer als 0 sein, aktueller Wert: {num_cells_series}")
+        if cells_series <= 0:
+            raise ValueError(f"Anzahl der Batteriezellen muss größer als 0 sein, aktueller Wert: {cells_series}")
         
         if v_min > v_max:
             raise ValueError(f"Minimale Spannung v_min ({v_min}) muss kleiner sein als maximale Spannung vmax ({v_max})")
@@ -78,8 +78,16 @@ class Battery(ABC):
  
     def terminal_voltage(self, current: float = 0.0) -> float:
         """Funktion zur Ausgabe der Spannung unter Last in V."""
+        
+        voltage = self.open_circuit_voltage() - self.internal_resistance * current
 
-        return self.open_circuit_voltage() - self.internal_resistance * current
+        #Log-Warnung, falls aktuelle Spannung unter Minimalspannung liegt
+        if voltage < self.v_min:
+            logger.warning(
+                f"Aktuelle Spannung von {voltage:.2f} V bei vorgegebener Minimalspannung von {self.v_min:.2f} V "
+                f"(Strom = {current:.2f} A, SoC = {self.soc * 100:.1f}%)."
+            )
+        return voltage
 
     def apply_current(self, current: float, duration: float) -> None:
         """Funktion zur Stromzufuhr über eine gewisse Zeitspanne + Aktualisierung des SoC inkl. Fehlerbehandlung."""
@@ -117,3 +125,117 @@ class Battery(ABC):
         True wenn voll."""
 
         return self.soc >= 1.0 - 1e-9
+    
+    def __str__(self) -> str:
+        """Funktion zur sinnvollen Ausgabe der Werte bei Überprüfung.
+        
+        Gibt beim Selbsttest lesbare Information über die jeweilige Akku-Ausführung (LiPo/NMC) aus."""
+
+        return f"{type(self).__name__} (SoC = {self.soc*100:.1f}%, U = {self.terminal_voltage():.2f} V)"
+ 
+ 
+class LiPoBattery(Battery):
+    """Unterklasse der LiPo-Batterie mit Eigenschaften laut Angabe."""
+    
+    #LiPo-Batteriezellen Kennwerte (laut Angabe)
+    RESISTANCE = 8e-3
+    CELLS_SERIES = 10
+    V_MIN: float = 32.0
+    V_MAX: float = 42.0
+    
+    #OCV-Kennlinie (laut Angabe)
+    ocv_table = [
+        (0.00, 32.00), (0.04, 35.87), (0.09, 36.85), (0.13, 37.56),
+        (0.17, 37.87), (0.21, 38.28), (0.26, 38.81), (0.30, 39.05),
+        (0.40, 39.55), (0.52, 40.27), (0.64, 40.70), (0.76, 41.16),
+        (0.88, 41.65), (1.00, 42.00),
+    ]
+ 
+    def __init__(
+            self,
+            capacity_Ah: float,
+            cells_parallel: int = 1,
+            initial_soc: float = 1.0
+            ) -> None:
+        
+        #Fehlermeldung, falls Anzahl der Zellen nicht größer 0 ist
+        if cells_parallel <= 0:
+            raise ValueError(f"Anzahl der Batteriezellen (cells_parallel) muss größer als 0 sein, aktuell: {cells_parallel}")
+
+        internal_resistance = self.RESISTANCE * self.CELLS_SERIES / cells_parallel
+        self.cells_parallel = cells_parallel
+        
+        #Initialisierung der Werte für die Oberklasse "Battery"
+        super().__init__(
+            capacity_Ah = capacity_Ah,
+            internal_resistance = internal_resistance,
+            cells_series = self.CELLS_SERIES,
+            initial_soc = initial_soc,
+            v_min = self.V_MIN,
+            v_max = self.V_MAX,
+        )
+    
+    #Aktuelle interpolte (auf Randwerte begrenzte) Leerlaufspannung (OCV)
+    def open_circuit_voltage(self) -> float:
+        return self.interpolate_ocv(self.soc)
+ 
+ 
+class NMCBattery(Battery):
+    """Unterklasse der NCM-Batterie mit Eigenschaften laut Angabe."""
+
+    #NMC-Batteriezellen Kennwerte (laut Angabe)
+    RESISTANCE = 7e-3
+    CELLS_SERIES = 10
+    V_MIN: float = 32.0
+    V_MAX: float = 42.0
+    
+    #OCV-Kennlinie (laut Angabe)
+    ocv_table = [
+        (0.00, 32.00), (0.04, 32.61), (0.09, 33.17), (0.13, 33.85),
+        (0.17, 34.24), (0.21, 34.66), (0.26, 35.39), (0.30, 35.65),
+        (0.40, 36.65), (0.52, 37.64), (0.64, 38.91), (0.76, 40.14),
+        (0.88, 41.08), (1.00, 42.00),
+    ]
+ 
+    def __init__(
+            self,
+            capacity_Ah: float,
+            cells_parallel: int = 1,
+            initial_soc: float = 1.0
+            ) -> None:
+        
+        #Fehlermeldung, falls Anzahl der Zellen nicht größer 0 ist
+        if cells_parallel <= 0:
+            raise ValueError(f"Anzahl der Batteriezellen (cells_parallel) muss größer als 0 sein, aktuell: {cells_parallel}")
+        
+        internal_resistance = self.RESISTANCE * self.CELLS_SERIES / cells_parallel
+        self.cells_parallel = cells_parallel
+
+        #Initialisierung der Werte für die Oberklasse "Battery"
+        super().__init__(
+            capacity_Ah = capacity_Ah,
+            internal_resistance = internal_resistance,
+            cells_series = self.CELLS_SERIES,
+            initial_soc = initial_soc,
+            v_min = self.V_MIN,
+            v_max = self.V_MAX,
+        )
+    
+    #Aktuelle interpolierte (auf Randwerte begrenzte) Leerlaufspannung (OCV)
+    def open_circuit_voltage(self) -> float:
+        return self.interpolate_ocv(self.soc)
+ 
+ 
+if __name__ == "__main__":
+    #Logging-Konfiguration
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(asctime)s - %(message)s")
+
+    #Selbsttest: Ermittlung von Leerlaufspannung (OCV) bei bestimmtem SoC & Batterie-Werte bei 10 A über 20 min entladen
+    for battery in (LiPoBattery(capacity_Ah = 15.0, initial_soc = 1.0), NMCBattery(capacity_Ah = 15.0, initial_soc = 1.0)):
+        print(battery)
+        print(f"  OCV bei SoC = 0.5: {battery.interpolate_ocv(0.5):.2f} V")
+        battery.apply_current(current = 10.0, duration = 1200.0)
+        print(f"  Wert nach 10 A / 20 min -> {battery}")
+        print(f"  Akku leer? {battery.is_empty()}")
+        print(f"  Akku voll? {battery.is_full()}")
+        print()
