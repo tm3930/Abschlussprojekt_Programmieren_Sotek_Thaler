@@ -57,3 +57,10 @@ if __name__ == "__main__":
     I = motor.current(T)
     print(motor)
     print(f"Kraft F = {F:.0f} N - Drehmoment T = {T:.2f} Nm - Motorstrom I = {I:.2f} A")
+
+    #Selbsttest mit der Battery-Klasse - 20min fahren
+    from battery import LiPoBattery
+
+    battery = LiPoBattery(capacity_Ah = 15.0, initial_soc = 1.0)
+    battery.apply_current(current = I, duration = 1200.0)
+    print(battery)
