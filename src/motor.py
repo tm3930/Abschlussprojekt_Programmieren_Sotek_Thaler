@@ -47,9 +47,8 @@ if __name__ == "__main__":
     #Logging-Konfiguration
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(asctime)s - %(message)s")
 
-    #Kennwerte (laut Angbe)
-    diameter = 27 * 0.0254 #Umrechnung des Zoll-Wertes auf Meter
-    motor = Motor(motor_constant = 1.5, radius = diameter / 2)
+    from ebike_config import EbikeConfig as config
+    motor = Motor(motor_constant = config.motor_constant, radius = config.radius)
 
     #Selbsttest der Klasse
     F = 100.0

@@ -2,6 +2,8 @@ import sys
 from data_validation import validate
 from data_from_csv import get_data_from_csv
 from data_calculations import get_distance, get_velocity, get_acceleration
+from motor import Motor
+from ebike_config import EbikeConfig
 
 
 #Daten importieren aus csv-File aus dem Ordner data / raw
@@ -26,3 +28,7 @@ data_temperature = data["temperature"].to_numpy()
 data_distance_travelled = get_distance(data_lat, data_lon)
 data_velocity = get_velocity(data_distance_travelled, data_time)
 data_acceleration = get_acceleration(data_velocity, data_time)
+
+#Zugriff der Motor-Klasse auf die Daten der EbikeConfig-Klasse
+config = EbikeConfig()
+motor  = Motor(motor_constant = config.motor_constant, radius = config.radius)
