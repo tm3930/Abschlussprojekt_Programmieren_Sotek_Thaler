@@ -8,7 +8,7 @@ class EbikeConfig:
 
     bike_mass: float = 10.0
 
-    cw_A: float = 0.5625, #Produkt von cw-Wert und Stirnfläche (m^2)
+    cw_and_area: float = 0.5625 #Produkt von cw-Wert und Stirnfläche (m^2)
 
     diameter: float = 27 * 0.0254 #27 Zoll Rad in m,
 
