@@ -2,6 +2,7 @@ from data_from_csv import get_data_from_csv
 from motor import Motor
 from ebike_config import EbikeConfig
 from gps_data import GPSData
+from ebike_dynamics import EbikeDynamics
 import logging
 import sys
 
@@ -24,6 +25,15 @@ distance = gps.get_distance()
 velocity = gps.get_velocity(distance)
 acceleration = gps.get_acceleration(velocity)
 incline = gps.get_incline(distance)
+
+dynamics = EbikeDynamics()
+
+drag_force = dynamics.get_drag_force(velocity)
+incline_force = dynamics.get_incline_force(incline)
+forward_force = dynamics.get_total_force(acceleration, incline_force, drag_force)
+power = dynamics.get_power(forward_force, velocity)
+torque = dynamics.get_torque(forward_force)
+
 
 
 #Zugriff der Motor-Klasse auf die Daten der EbikeConfig-Klasse
