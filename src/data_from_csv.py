@@ -17,7 +17,8 @@ def get_data_from_csv(csv_name: str) -> pd.DataFrame:
     '''
 
     #Pfad zur CSV-Datei:
-    path_to_csv = Path("data") / "raw" / csv_name
+    base_dir = Path(__file__).resolve().parent.parent
+    path_to_csv = base_dir / "data" / "raw" / csv_name
     data = pd.read_csv(
         path_to_csv, 
         sep=";",                    #Semikolon als Trennzeichen
