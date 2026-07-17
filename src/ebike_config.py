@@ -12,13 +12,13 @@ class EbikeConfig:
 
     diameter: float = 27 * 0.0254 #27 Zoll Rad in m,
 
-    radius: float = diameter/2
+    radius: float = diameter / 2
 
     motor_constant: float = 1.5 #Motorkonstante (Formelzeichem Km)
     
 
 if __name__ == "__main__":
-    config = EbikeConfig
+    config = EbikeConfig()
     
     print(config)
     print(f"Gesamtmasse: {config.rider_mass + config.bike_mass} kg")
