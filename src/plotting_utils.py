@@ -1,11 +1,14 @@
 import logging
+import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-def plot_speed_power_soc(data: dict):
-    """Eine Funktion zum plotten von Geschwindigkeit, Leistung und Ladezustand über den Fahrtverlauf (Zeit)"""
+def plot_speed_power_soc(data: pd.DataFrame):
+    '''
+    Funktion zum plotten von Geschwindigkeit, Leistung und Ladezustand über den Fahrtverlauf (Zeit)
+    '''
 
     #Fehlermeldung, falls einer der Werte in "data" fehlt
     for x in ("time", "velocity", "power", "soc"):
@@ -20,9 +23,9 @@ def plot_speed_power_soc(data: dict):
 
     #Fehlermeldung, falls Listen sich in Länge unterscheiden
     if not (len(time) == len(velocity) == len(power) == len(soc)):
-        raise ValueError("Die Datenlisten (time, velocity, power) müssen gleich lang sein!")
+        raise ValueError("Die Datenlisten (time, velocity, power, soc) müssen gleich lang sein!")
 
-    #Erstellung der Drei Datendiagramme mit einer Zeitachse durch "sharex"
+    #Erstellung der drei Datendiagramme mit einer Zeitachse durch "sharex"
     fig, (ax_v, ax_p, ax_s) = plt.subplots(3, 1, figsize = (9, 7), sharex = True)
 
     ax_v.plot(time, velocity * 3.6, "b-") #m/s auf km/h umrechnen
