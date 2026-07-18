@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
 def get_data_from_csv(csv_name: str) -> pd.DataFrame:
     '''
@@ -31,10 +32,10 @@ def get_data_from_csv(csv_name: str) -> pd.DataFrame:
     #Daten auf Korrektheit überprüfen:
     if not validate(data):
         #Wenn validate() einen Fehler erkennt wird das Programm abgebrochen und Details in die app.log Datei hineingeschrieben
-        logging.critical("Programm abgebrochen aufgrund fehlerhafter Daten.")
+        logger.error("Programm abgebrochen aufgrund fehlerhafter Daten.")
         raise ValueError("Die hochgeladenen CSV-Daten sind ungültig. Siehe 'app.log' für Details.")
     #Wenn kein Fehler erkannt wird, dann wird dies notiert und der Code wird weiter ausgeführt
-    logging.info("Daten erfolgreich verifiziert und bereit zur Verarbeitung.")
+    logger.info("Daten erfolgreich verifiziert und bereit zur Verarbeitung.")
     
     return data
 
@@ -48,45 +49,45 @@ def validate(df: pd.DataFrame) -> bool:
     Ausgabe:
         True, wenn alle Tests bestanden wurden, sonst False
     """
-    logging.info("Starte Datenvalidierung...")
+    logger.info("Starte Datenvalidierung...")
 
     #Kontrolle ob Daten vorhanden sind:
     if len(df) == 0:
-        logging.error("Validierungsfehler: Das Dataset ist leer.")
+        logger.error("Validierungsfehler: Das Dataset ist leer.")
         return False
 
     #Kontrolle ob irgendwelche Werte fehlen, im Datensatz Zellen ausgelassen wurden
     if df.isnull().any().any():
-        logging.error("Validierungsfehler: Es sind fehlende Werte vorhanden.")
+        logger.error("Validierungsfehler: Es sind fehlende Werte vorhanden.")
         return False
 
     #Kontrolle ob sich alle Breitengrade in +90 und -90 Grad befinden
     if not df["lat"].between(-90, 90).all():
-        logging.error("Validierungsfehler: Ungültige Latitude-Werte außerhalb von -90 bis 90 Grad.")
+        logger.error("Validierungsfehler: Ungültige Latitude-Werte außerhalb von -90 bis 90 Grad.")
         return False
 
     #Kontrolle ob sich alle Längengrade in +180 und -180 Grad befinden
     if not df["lon"].between(-180, 180).all():
-        logging.error("Validierungsfehler: Ungültige Longitude-Werte außerhalb von -180 bis 180 Grad.")
+        logger.error("Validierungsfehler: Ungültige Longitude-Werte außerhalb von -180 bis 180 Grad.")
         return False
 
     #Kontrolle ob sich alle Höhendaten zwischen -10 Metern und +3000 Metern über dem Meeresspiegel befinden
     if not df["ele"].between(-10, 3000).all():
-        logging.error("Validierungsfehler: Unplausible Höhenwerte fürs Radfahren (außerhalb von -10m bis 3000m).")
+        logger.error("Validierungsfehler: Unplausible Höhenwerte fürs Radfahren (außerhalb von -10m bis 3000m).")
         return False
 
     #Kontrolle ob es unrealistische Höhen-Sprünge (GPS-Ausreißer) gibt (mehr als 20 Meter Veränderung von einem zum nächsten Punkt)
     delta_ele = np.abs(np.diff(df["ele"].to_numpy()))
     if np.any(delta_ele > 20):
         anzahl_fehler = np.sum(delta_ele > 20)
-        logging.warning(
-            f"Validierungswarnung: Es wurden {anzahl_fehler} extreme Höhen-Sprünge (>20m) festgestellt. " #Nur eine Warnung - Programm läuft trzd. weiter
-            f"Das deutet auf temporäre GPS-Messfehler hin."
+        logger.warning(
+            "Validierungswarnung: Es wurden %d extreme Höhen-Sprünge (>20m) festgestellt. Das deutet auf temporäre GPS-Messfehler hin.",
+            anzahl_fehler
         )
 
     #Kontrolle ob für die Temperatur realistische Werte vorhanden sind zwischen -20 und +45 Grad
     if not df["temperature"].between(-20, 45).all():
-        logging.error("Validierungsfehler: Unplausible Temperaturwerte (außerhalb von -20°C bis 45°C).")
+        logger.error("Validierungsfehler: Unplausible Temperaturwerte (außerhalb von -20°C bis 45°C).")
         return False
 
     #Kontrolle ob die Zeiten immer aufsteigend sind
@@ -94,16 +95,16 @@ def validate(df: pd.DataFrame) -> bool:
     
     #Kontrolle ob sie still steht
     if np.any(delta_time == 0):
-        logging.error("Validierungsfehler: Es gibt identische Zeitstempel (Zeitabschnitt ist 0s).")
+        logger.error("Validierungsfehler: Es gibt identische Zeitstempel (Zeitabschnitt ist 0s).")
         return False
 
     #Kontrolle ob sie rückwerts läuft
     if np.any(delta_time < 0):
-        logging.error("Validierungsfehler: Die Zeitliste ist nicht chronologisch aufsteigend.")
+        logger.error("Validierungsfehler: Die Zeitliste ist nicht chronologisch aufsteigend.")
         return False
 
     #Wenn alle Daten korrekt sind
-    logging.info("Alle Validierungstests erfolgreich bestanden.")
+    logger.info("Alle Validierungstests erfolgreich bestanden.")
     return True
 
 
@@ -121,11 +122,16 @@ if __name__ == "__main__":
         ]
     )
     
-    logging.info("Starte Hauptprogramm...")
+    logger.info("Starte data_from_csv Datei...")
     
     try:
+        #Daten laden
         gps = get_data_from_csv("final_project_input_data.csv")
+
+        #Kurze Vorschau der Daten im Terminal anzeigen
+        print("\n--- Daten-Vorschau (erste 5 Zeilen) ---")
+        print(gps.head())
+        print("---------------------------------------\n")
         
     except ValueError as e:
-        logging.error(f"Ausführung gestoppt: {e}")
-
+        logger.error("Ausführung gestoppt: %s", e)

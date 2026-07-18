@@ -2,13 +2,14 @@ import logging
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
 class GPSData:
     '''
     Klasse zur Berechnung verschiedener Fahrdaten aus GPS-Messwerten
     '''
 
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame) -> None:
         '''
         Konstruktor zum Speichern der GPS-Daten als NumPy-Arrays
 
@@ -16,7 +17,7 @@ class GPSData:
             data: Pandas DataFrame mit den Spalten 'lat', 'lon', 'ele', 'time' und 'temperature'
         '''
 
-        logging.info("Initialisiere GPSData-Objekt.")
+        logger.info("Initialisiere GPSData-Objekt.")
 
         self.data = data
 
@@ -27,7 +28,7 @@ class GPSData:
         self.data_time = self.data["time"].to_numpy()
         self.data_temperature = self.data["temperature"].to_numpy()
 
-        logging.info("GPS-Daten erfolgreich übernommen.")
+        logger.info("GPS-Daten erfolgreich übernommen.")
 
     def get_distance(self) -> np.ndarray:
         '''
@@ -42,7 +43,7 @@ class GPSData:
             zurückgelegte Strecke 
         '''
 
-        logging.info("Berechne zurückgelegte Strecke mithilfe der Haversine-Formel.")
+        logger.debug("Berechne zurückgelegte Strecke mithilfe der Haversine-Formel.")
 
         #Umwandlung von Grad in Radiant
         latitude_rad = np.radians(self.data_latitude)
@@ -60,7 +61,7 @@ class GPSData:
         #Aufsummieren, der einzelnen Ergebnisse um die zurückgelegte Strecke zu erhalten
         distance_travelled = np.concatenate(([0.0], np.cumsum(distances)))
         
-        logging.info("Streckenberechnung abgeschlossen.")
+        logger.debug("Streckenberechnung abgeschlossen.")
 
         return distance_travelled
     
@@ -77,7 +78,7 @@ class GPSData:
             Geschwindigkeit
         '''
         
-        logging.info("Berechne Geschwindigkeit.")
+        logger.debug("Berechne Geschwindigkeit.")
 
         #Berechnung der Differenz zwischen 2 Punkten
         delta_time = np.diff(self.data_time)
@@ -86,7 +87,7 @@ class GPSData:
         #Berechnung der Geschwindigkeit aus Strecke / Zeit
         velocity = delta_distance / delta_time
 
-        logging.info("Geschwindigkeit erfolgreich berechnet.")
+        logger.debug("Geschwindigkeit erfolgreich berechnet.")
 
         return np.insert(velocity, 0, 0.0) #Anfangswert auf 0.0 gesetzt, damit die Listen wieder die gleiche Länge haben
 
@@ -103,7 +104,7 @@ class GPSData:
             Beschleunigung
         '''
         
-        logging.info("Berechne Beschleunigung.")
+        logger.debug("Berechne Beschleunigung.")
 
         #Berechnung der Differenz zwischen 2 Punkten
         delta_time = np.diff(self.data_time)
@@ -112,7 +113,7 @@ class GPSData:
         #Berechnung der Geschwindigkeit aus Strecke / Zeit
         acceleration = delta_velocity / delta_time
 
-        logging.info("Beschleunigung erfolgreich berechnet.")
+        logger.debug("Beschleunigung erfolgreich berechnet.")
 
         return np.insert(acceleration, 0, 0.0) #Anfangswert auf 0.0 gesetzt, damit die Listen wieder die gleiche Länge haben
 
@@ -128,7 +129,7 @@ class GPSData:
             Steigung
         '''
 
-        logging.info("Berechne Steigung der Strecke.")
+        logger.debug("Berechne Steigung der Strecke.")
 
         #Berechnung der Differenz zwischen 2 Punkten
         delta_distance = np.diff(distance)
@@ -141,6 +142,63 @@ class GPSData:
         #Steigung in Radiant ausrechnen
         incline = np.arcsin(ratio)
 
-        logging.info("Steigungsberechnung abgeschlossen.")
+        logger.debug("Steigungsberechnung abgeschlossen.")
 
         return np.insert(incline, 0, 0.0)
+    
+
+if __name__ == "__main__":
+    import sys
+
+    #Logging einrichten
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("app.log", mode="a", encoding="utf-8"),
+        ],
+    )
+
+    logger.info("Starte gps_data Datei...")
+    #Künstliche Testdaten erstellen (3 Wegpunkte auf dem Fahrrad)
+    #Zeit in Sekunden, Höhen in Metern, Temperatur in °C
+    test_data = pd.DataFrame(
+        {
+            "time": [0.0, 5.0, 10.0],
+            "lat": [47.2682, 47.2685, 47.2689],
+            "lon": [11.3923, 11.3932, 11.3941],
+            "ele": [574.0, 575.5, 578.0],
+            "temperature": [21.0, 21.5, 22.0],
+        }
+    )
+
+    gps_calculator = GPSData(test_data)
+
+    
+    #Strecke berechnen
+    strecke = gps_calculator.get_distance()
+
+    #Geschwindigkeit berechnen
+    geschwindigkeit = gps_calculator.get_velocity(strecke)
+
+    #Beschleunigung berechnen
+    beschleunigung = gps_calculator.get_acceleration(geschwindigkeit)
+
+    #Steigung berechnen
+    steigung = gps_calculator.get_incline(strecke)
+
+    #Ergebnisse übersichtlich zusammenführen und anzeigen
+    ergebnisse = pd.DataFrame(
+        {
+            "Zeit [s]": test_data["time"],
+            "Gesamtstrecke [m]": np.round(strecke, 1),
+            "Geschw. [m/s]": np.round(geschwindigkeit, 2),
+            "Beschl. [m/s²]": np.round(beschleunigung, 2),
+            "Steigung [rad]": np.round(steigung, 3),
+        }
+    )
+
+    print("\n================ BERECHNETE FAHRDATEN ================")
+    print(ergebnisse.to_string(index=False))
+    print("======================================================\n")
