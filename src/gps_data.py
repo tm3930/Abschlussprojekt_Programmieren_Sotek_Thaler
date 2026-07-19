@@ -1,3 +1,12 @@
+'''
+Modul zur kinematischen Analyse und Berechnung von Fahrprofildaten aus GPS-Messwerten.
+
+Dieses Modul stellt die Klasse `GPSData` zur Verfügung, welche geografische und 
+zeitliche Rohdaten verarbeitet. Es berechnet essentielle physikalische Größen für 
+die E-Bike-Simulation, wie die kumulierte Wegstrecke (via Haversine-Formel), 
+die Momentangeschwindigkeit, die Beschleunigung sowie den lokalen Steigungswinkel.
+'''
+
 import logging
 import numpy as np
 import pandas as pd
@@ -6,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 class GPSData:
     '''
-    Klasse zur Berechnung verschiedener Fahrdaten aus GPS-Messwerten
+    Klasse zur Berechnung verschiedener Fahrdaten aus GPS-Messwerten.
     '''
 
     def __init__(self, data: pd.DataFrame) -> None:
         '''
-        Konstruktor zum Speichern der GPS-Daten als NumPy-Arrays
+        Konstruktor zum Speichern der GPS-Daten als NumPy-Arrays.
 
         Eingabe:
             data: Pandas DataFrame mit den Spalten 'lat', 'lon', 'ele', 'time' und 'temperature'
@@ -21,7 +30,7 @@ class GPSData:
 
         self.data = data
 
-        #Übernehmen der einzelnen Spalten in Numpy-Listen um später mit Ihnen arbeiten zu können
+        # Übernehmen der einzelnen Spalten in NumPy-Arrays, um später besser damit rechnen zu können
         self.data_latitude = self.data["lat"].to_numpy()
         self.data_longitude = self.data["lon"].to_numpy()
         self.data_elevation = self.data["ele"].to_numpy()
@@ -32,125 +41,120 @@ class GPSData:
 
     def get_distance(self) -> np.ndarray:
         '''
-        Funktion zur Berechnung der zurückgelegten Strecke aufgrund von Längen- & Breitengrade von GPS Daten
-        Dies wird mithilfe der Haversine Formel gemacht
+        Funktion zur Berechnung der zurückgelegten Strecke anhand von Längen- und Breitengraden.
+        Die Berechnung erfolgt mithilfe der Haversine-Formel.
         
-        Eingabe:
-            Breitengrade
-            Längengrade
-
         Ausgabe:
-            zurückgelegte Strecke 
+            np.ndarray: Ein Array mit der jeweils kumulierten zurückgelegten Strecke in Metern.
         '''
 
         logger.debug("Berechne zurückgelegte Strecke mithilfe der Haversine-Formel.")
 
-        #Umwandlung von Grad in Radiant
+        # Umwandlung von Grad in Radiant
         latitude_rad = np.radians(self.data_latitude)
         longitude_rad = np.radians(self.data_longitude)
 
-        #Berechnung der Differenz zwischen 2 Punkten
+        # Berechnung der Differenz zwischen zwei aufeinanderfolgenden Punkten
         delta_latitude = np.diff(latitude_rad)
         delta_longitude = np.diff(longitude_rad)
 
-        #Haversine Formel berechnen
-        a = np.sin(delta_latitude / 2.0)**2 + np.cos(latitude_rad[:-1]) * np.cos(latitude_rad[1:]) * np.sin(delta_longitude / 2.0)**2
-        c = 2 * np.arcsin(np.sqrt(a))
-        distances = c * 6371000  # 6371000 Meter ist der Erdradius
+        # Haversine-Formel anwenden
+        a_1 = np.sin(delta_latitude / 2.0)**2 + np.cos(latitude_rad[:-1])
+        a_2 = np.cos(latitude_rad[1:]) * np.sin(delta_longitude / 2.0)**2
+        c = 2 * np.arcsin(np.sqrt(a_1 * a_2))
+        distances = c * 6371000  # 6.371.000 Meter entspricht dem mittleren Erdradius
 
-        #Aufsummieren, der einzelnen Ergebnisse um die zurückgelegte Strecke zu erhalten
+        # Aufsummieren der einzelnen Intervalle, um die Gesamtwegstrecke zu erhalten
         distance_travelled = np.concatenate(([0.0], np.cumsum(distances)))
-        
+
         logger.debug("Streckenberechnung abgeschlossen.")
 
         return distance_travelled
-    
 
     def get_velocity(self, distance: np.ndarray) -> np.ndarray:
         '''
-        Funktion zur Bestimmung der Geschwindigkeit = Zurückgelegte Strecke über der Zeit
+        Funktion zur Bestimmung der Geschwindigkeit (Änderung der Strecke über der Zeit).
         
         Eingabe:
-            Zeit
-            Strecke
+            distance: Array der bereits berechneten Wegstrecke in Metern.
         
         Ausgabe:
-            Geschwindigkeit
+            np.ndarray: Die berechnete Momentangeschwindigkeit in m/s für jeden Zeitschritt.
         '''
-        
+
         logger.debug("Berechne Geschwindigkeit.")
 
-        #Berechnung der Differenz zwischen 2 Punkten
+        # Berechnung der Differenzen zwischen zwei Punkten
         delta_time = np.diff(self.data_time)
         delta_distance = np.diff(distance)
 
-        #Berechnung der Geschwindigkeit aus Strecke / Zeit
-        velocity = delta_distance / delta_time
+        # Berechnung aus Strecke / Zeit (Division durch 0 wird durch np.where abgefangen)
+        velocity_intervals = np.where(delta_time > 0, delta_distance / delta_time, 0.0)
 
         logger.debug("Geschwindigkeit erfolgreich berechnet.")
 
-        return np.insert(velocity, 0, 0.0) #Anfangswert auf 0.0 gesetzt, damit die Listen wieder die gleiche Länge haben
-
+        return np.concatenate(([0.0], velocity_intervals))
 
     def get_acceleration(self, velocity: np.ndarray) -> np.ndarray:
         '''
-        Funktion zur Bestimmung der Beschleunigung = Änderung der Geschwindigkeit über der Zeit
+        Funktion zur Bestimmung der Beschleunigung (Änderung der Geschwindigkeit über der Zeit).
         
         Eingabe:
-            Zeit
-            Geschwindigkeit
+            velocity: Array der berechneten Momentangeschwindigkeiten in m/s.
         
         Ausgabe:
-            Beschleunigung
+            np.ndarray: Die berechnete Beschleunigung in m/s² für jeden Zeitschritt.
         '''
-        
+
         logger.debug("Berechne Beschleunigung.")
 
-        #Berechnung der Differenz zwischen 2 Punkten
+        # Berechnung der Differenzen zwischen zwei Punkten
         delta_time = np.diff(self.data_time)
         delta_velocity = np.diff(velocity)
 
-        #Berechnung der Geschwindigkeit aus Strecke / Zeit
-        acceleration = delta_velocity / delta_time
+        # Berechnung aus Geschwindigkeitsänderung / Zeit (Division durch 0 wird abgefangen)
+        acceleration_intervals = np.where(delta_time > 0, delta_velocity / delta_time, 0.0)
 
         logger.debug("Beschleunigung erfolgreich berechnet.")
 
-        return np.insert(acceleration, 0, 0.0) #Anfangswert auf 0.0 gesetzt, damit die Listen wieder die gleiche Länge haben
+        return np.concatenate(([0.0], acceleration_intervals))
 
     def get_incline(self, distance: np.ndarray) -> np.ndarray:
         '''
-        Funktion zur Bestimmung der Steigung = ArcusSinus von Änderung der Höhe zu Änderung der Strecke
+        Funktion zur Bestimmung der lokalen Steigung mittels Arcustangens 
+        (Verhältnis von Höhenänderung zu Streckenänderung).
         
         Eingabe: 
-            Strecke
-            Höhe über dem Meeresspiegel
+            distance: Array der bereits berechneten Wegstrecke in Metern.
             
         Ausgabe:
-            Steigung
+            np.ndarray: Der lokale Steigungswinkel im Bogenmaß (rad) für jeden Zeitschritt.
         '''
 
         logger.debug("Berechne Steigung der Strecke.")
 
-        #Berechnung der Differenz zwischen 2 Punkten
+        # Berechnung der Differenzen zwischen zwei Punkten
         delta_distance = np.diff(distance)
         delta_elevation = np.diff(self.data_elevation)
 
-        #Verhältnis zwischen beiden Werten ausrechnen
-        #np.clip verhindert dass Werte größer oder kleiner als 1 werden, weil dies durch GPS manchmal passieren kann jedoch nicht realistisch ist
-        ratio = np.clip(delta_elevation / delta_distance, -1, 1)
+        # Verhältnis zwischen Höhenänderung und Distanzänderung bestimmen
+        # np.clip begrenzt das Verhältnis auf plausible Werte zwischen -100% und +100% Steigung
+        ratio = np.zeros_like(delta_elevation)
+        valid = delta_distance > 0
+        ratio[valid] = np.clip(delta_elevation[valid] / delta_distance[valid], -1, 1)
 
-        #Steigung in Radiant ausrechnen
-        incline = np.arcsin(ratio)
+        # Lokalen Steigungswinkel über den Arcustangens bestimmen
+        incline_intervals = np.arctan(ratio)
 
         logger.debug("Steigungsberechnung abgeschlossen.")
 
-        return np.insert(incline, 0, 0.0)
-    
+        return np.concatenate(([0.0], incline_intervals))
+
 
 if __name__ == "__main__":
     import sys
 
-    #Logging einrichten
+    # Logging für den lokalen Testlauf einrichten
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
@@ -161,8 +165,8 @@ if __name__ == "__main__":
     )
 
     logger.info("Starte gps_data Datei...")
-    #Künstliche Testdaten erstellen (3 Wegpunkte auf dem Fahrrad)
-    #Zeit in Sekunden, Höhen in Metern, Temperatur in °C
+
+    # Künstliche Testdaten erstellen (3 Wegpunkte auf dem Fahrrad)
     test_data = pd.DataFrame(
         {
             "time": [0.0, 5.0, 10.0],
@@ -175,20 +179,13 @@ if __name__ == "__main__":
 
     gps_calculator = GPSData(test_data)
 
-    
-    #Strecke berechnen
+    # Physikalische und kinematische Kennwerte berechnen
     strecke = gps_calculator.get_distance()
-
-    #Geschwindigkeit berechnen
     geschwindigkeit = gps_calculator.get_velocity(strecke)
-
-    #Beschleunigung berechnen
     beschleunigung = gps_calculator.get_acceleration(geschwindigkeit)
-
-    #Steigung berechnen
     steigung = gps_calculator.get_incline(strecke)
 
-    #Ergebnisse übersichtlich zusammenführen und anzeigen
+    # Ergebnisse übersichtlich zusammenführen und anzeigen
     ergebnisse = pd.DataFrame(
         {
             "Zeit [s]": test_data["time"],

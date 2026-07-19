@@ -1,88 +1,144 @@
+'''
+Modul zur Berechnung der Fahrdynamik und der mechanischen Kräfte eines E-Bikes.
+
+Dieses Modul stellt die Klasse `EbikeDynamics` bereit. Sie berechnet auf 
+Basis der Fahrspurdaten und Fahrzeugparameter alle relevanten physikalischen 
+Kräfte (Luftwiderstand unter Berücksichtigung der barometrischen Höhenformel, 
+Rollwiderstand und Hangabtriebskraft) sowie die daraus resultierende 
+mechanische Gesamtleistung des Systems.
+'''
+
 import logging
-from ebike_config import EbikeConfig
 import numpy as np
+from ebike_config import EbikeConfig
+
 
 logger = logging.getLogger(__name__)
 
-class EbikeDynamics():
+class EbikeDynamics:
     '''
-    Klasse um die Dynamik des Ebikes besser zu beschreiben und verschiedene Berechnungen durchzuführen
+    Klasse zur mathematischen Beschreibung der E-Bike-Dynamik und Kraftberechnungen.
     '''
-    
-    def __init__(self, config: EbikeConfig = EbikeConfig()):
-        '''
-        Initialisierung der Klasse
-        Alle Argumente & Methoden von EbikeConfig werden übernommen
-        '''
-        
-        logger.info("Initialisiere EbikeDynamics-Objekt.")
-        
-        self.config = config
 
-    
-    def get_drag_force(self, velocity: np.ndarray) -> np.ndarray:
+    def __init__(self, config: EbikeConfig = None):
         '''
-        Funktion zur Berechnung der Luftwiderstandskraft des E-Bikes auf Basis der Geschwindigkeit
+        Initialisierung der Dynamik-Klasse.
+        
+        Eingabe:
+            config: Optionale Instanz von EbikeConfig. Wenn keine übergeben wird, 
+                    werden die Standardvorgaben geladen.
+        '''
+
+        logger.info("Initialisiere EbikeDynamics-Objekt.")
+
+        # Falls keine Config übergeben wird, wird eine frische Standard-Config erstellt
+        self.config = config if config is not None else EbikeConfig()
+
+    def get_drag_force(
+            self,
+            velocity: np.ndarray,
+            elevation: np.ndarray,
+            temperature: np.ndarray
+        ) -> np.ndarray:
+        '''
+        Funktion zur Berechnung der Luftwiderstandskraft des E-Bikes auf Basis der Geschwindigkeit,
+        Höhe über dem Meeresspiegel und der Temperatur.
 
         Eingabe:
             velocity: NumPy-Array mit den Geschwindigkeitswerten in m/s
+            elevation: NumPy-Array mit der Höhe in Metern
+            temperature: NumPy-Array mit der Temperatur in °C
         
         Ausgabe:
             np.ndarray: Array mit den berechneten Luftwiderstandskräften in Newton
         '''
-        logger.debug("Berechne Luftwiderstandskraft")
+        logger.debug("Berechne Luftwiderstandskraft mit dynamischer Luftdichte")
 
-        rho = 1.2 #Rho ist die Luftdichte -> ca. 1,2 kg/m^3
-        a: float = rho * self.config.cw_and_area / 2
-        
+        # 1. Temperatur in Kelvin umrechnen
+        t_kelvin = temperature + 273.15
+
+        # 2. Luftdruck p in Abhängigkeit der Höhe berechnen (Barometrische Höhenformel)
+        # p_0 = 101325 Pa (Standarddruck auf Meereshöhe), 0.0065 K/m ist der Temperaturgradient
+        p = 101325.0 * (1 - (0.0065 * elevation) / 288.15) ** 5.255
+
+        # 3. Luftdichte rho nach der idealen Gasgleichung berechnen
+        # R_s = 287.05 J/(kg*K) ist die spezifische Gaskonstante für trockene Luft
+        rho = p / (287.05 * t_kelvin)
+
+        a = rho * self.config.cw_and_area / 2
+
         logger.debug("Luftwiderstandskraft Berechnung abgeschlossen")
-        
+
         return (velocity ** 2) * a
-    
-    
+
+    def get_rolling_resistance(self, incline: np.ndarray) -> np.ndarray:
+        '''
+        Funktion zur Berechnung der Rollwiderstandskraft auf Basis des Steigungswinkels.
+        Formel: F_R = m * g * cos(alpha) * c_r
+
+        Eingabe:
+            incline: NumPy-Array mit den Steigungswinkeln in Bogenmaß (rad)
+
+        Ausgabe:
+            np.ndarray: Array mit den berechneten Rollwiderstandskräften in Newton
+        '''
+        g = 9.81  # Erdbeschleunigung in m/s²
+        total_mass = self.config.bike_mass + self.config.rider_mass
+
+        # Rollwiderstandskoeffizient für Asphalt (ca. 0.005)
+        c_r = 0.005
+
+        return total_mass * g * np.cos(incline) * c_r
+
     def get_incline_force(self, incline: np.ndarray) -> np.ndarray:
         '''
         Funktion zur Berechnung der Hangabtriebskraft bei Steigungen.
 
         Eingabe:
-            incline: NumPy-Array mit den Steigungswinkeln in Bogenmaß (Rad)
+            incline: NumPy-Array mit den Steigungswinkeln in Bogenmaß (rad)
         
         Ausgabe:
             np.ndarray: Array mit den wirkenden Kräften durch die Steigung in Newton
         '''
-        
+
         logger.debug("Berechne Hangabtriebskraft")
 
-        g = 9.81 #Gravitationskonstante: 9,81 m / s^2
+        g = 9.81  # Erdbeschleunigung in m/s²
         total_mass = self.config.bike_mass + self.config.rider_mass
 
         logger.debug("Hangabtriebskraft Berechnung abgeschlossen")
 
         return total_mass * g * np.sin(incline)
 
-
-    def get_total_force(self, acceleration: np.ndarray, incline_force: np.ndarray, drag_force: np.ndarray) -> np.ndarray:
+    def get_total_force(
+            self,
+            acceleration: np.ndarray,
+            incline_force: np.ndarray,
+            drag_force: np.ndarray,
+            rolling_resistance: np.ndarray
+        ) -> np.ndarray:
         '''
-        Funktion zur Berechnung der gesamten benötigten Antriebskraft.
+        Funktion zur Berechnung der gesamten benötigten Antriebskraft 
+        (Massenbeschleunigung + alle Fahrwiderstände)
 
         Eingabe:
-            acceleration: NumPy-Array mit den Beschleunigungswerten in m/s^2
+            acceleration: NumPy-Array mit den Beschleunigungswerten in m/s²
             incline_force: NumPy-Array mit den Steigungskräften in Newton
             drag_force: NumPy-Array mit den Luftwiderstandskräften in Newton
+            rolling_resistance: NumPy-Array mit den Rollwiderstandskräften in Newton
         
         Ausgabe:
             np.ndarray: Array mit der gesamten erforderlichen Antriebskraft in Newton
         '''
-        
+
         logger.debug("Berechne gesamte benötigte Antriebskraft")
-        
+
         total_mass = self.config.bike_mass + self.config.rider_mass
-        
+
         logger.debug("gesamte benötigte Antriebskraft Berechnung abgeschlossen")
 
-        return total_mass * acceleration + incline_force + drag_force
+        return total_mass * acceleration + incline_force + drag_force + rolling_resistance
 
-    
     def get_power(self, force: np.ndarray, velocity: np.ndarray) -> np.ndarray:
         '''
         Funktion zur Berechnung der mechanischen Leistung.
@@ -98,13 +154,12 @@ class EbikeDynamics():
         logger.debug("Berechne Leistung")
 
         return np.multiply(force, velocity)
-        
-    
+
 
 if __name__ == "__main__":
     import sys
 
-    #Logging einrichten
+    # Logging einrichten
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
@@ -116,27 +171,34 @@ if __name__ == "__main__":
 
     logger.info("Starte ebike_dynamics Datei...")
 
-    #Konfiguration aufsetzen
+    # Konfiguration mit spezifischen Testwerten aufsetzen
     config_test = EbikeConfig()
     config_test.bike_mass, config_test.rider_mass, config_test.cw_and_area = 20.0, 80.0, 0.6
 
-    dynamics = EbikeDynamics()
+    # Wichtig: Die modifizierte config_test hier an die Dynamik übergeben!
+    dynamics = EbikeDynamics(config=config_test)
 
-    #Testdaten
+    # Testdaten (jeweils 3 Punkte)
     v = np.array([2.0, 5.0, 7.5])
     acc = np.array([0.5, 0.2, -0.1])
     inc = np.array([0.0, 0.04, 0.08])
+    ele = np.array([500.0, 520.0, 550.0])
+    temp = np.array([20.0, 19.5, 19.0])
 
-    #Berechnungen kompakt ausführen
-    f_drag = dynamics.get_drag_force(v)
+    # Berechnungen fehlerfrei ausführen
+    f_drag = dynamics.get_drag_force(v, ele, temp)
+    f_roll = dynamics.get_rolling_resistance(inc)
     f_inc = dynamics.get_incline_force(inc)
-    f_total = dynamics.get_total_force(acc, f_inc, f_drag)
+    f_total = dynamics.get_total_force(acc, f_inc, f_drag, f_roll)
     power = dynamics.get_power(f_total, v)
 
-    #Ausgabe
+    # Übersichtliche Text-Ausgabe im Terminal
     print("\n========== BERECHNETE KRÄFTE & LEISTUNGEN ===========")
-    print("Luftwiderstand [N]:", np.round(f_drag, 1))
-    print("Hangabtrieb [N]:   ", np.round(f_inc, 1))
-    print("Gesamtkraft [N]:   ", np.round(f_total, 1))
-    print("Leistung [Watt]:   ", np.round(power, 1))
+    print("Luftwiderstand [N]: ", np.round(f_drag, 1))
+    print("Rollwiderstand [N]: ", np.round(f_roll, 1))
+    print("Hangabtrieb [N]:    ", np.round(f_inc, 1))
+    print("Gesamtkraft [N]:    ", np.round(f_total, 1))
+    print("Leistung [Watt]:    ", np.round(power, 1))
     print("======================================================\n")
+
+    logger.info("Überprüfung erfolgreich abgeschlossen.")
