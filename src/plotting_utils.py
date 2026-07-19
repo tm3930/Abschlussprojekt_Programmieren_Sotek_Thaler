@@ -75,6 +75,55 @@ def plot_elevation_profile(gps):
 
     return fig
 
+def plot_colored_elevation_profile(gps):
+    '''
+    Erweiterung: eine Funktion zum plotten eines farbigen Höhenprofils.
+    
+    (steigende Abschnitte rot, ebene Abschnitte gelb, fallende Abschnitte grün).
+    '''
+
+    #Strecke, Höhe und Steigung aus GPS-Klasse holen
+    distance = gps.get_distance()
+    elevation = gps.data_elevation
+    incline = gps.get_incline(distance)
+
+    #Fehlermeldung, falls Listen sich in Länge unterscheiden
+    if not (len(distance) == len(elevation) == len(incline)):
+        raise ValueError("Die Listen distance, elevation und incline müssen gleich lang sein.")
+
+    distance_km = distance / 1000.0 #m auf km umrechnen
+    incline_deg = np.degrees(incline) #Steigung von Radiant in Grad umrechnen
+
+    #Farbskala RdYlGn (rot, gelb, grün) aus mathplot, mit "-r" invertiert
+    color_scale = plt.get_cmap("RdYlGn_r")
+
+    #Grenze festlegen, damit gelb/eben in der Mitte ist
+    grenze = np.max(np.absolute(incline_deg))
+    norm = plt.Normalize(vmin = -grenze, vmax = grenze)
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+
+    #Einfärben der Streckenabschnitte nach Steitung
+    for i in range(len(distance_km) - 1):
+        ax.fill_between(
+            distance_km[i:i + 1], #x-Werte des Streckenabschnitt
+            elevation[i:i + 1], #Höhe des Streckenabschnitts
+            np.min(elevation), #untere Grenze
+            color = color_scale(norm(incline_deg[i + 1])) #Farbe nach Steigung des Streckenabschnitts
+        )
+
+    #Zusätzlich schwarze Linie der Höhenlinie
+    ax.plot(distance_km, elevation, "k-", linewidth = 0.8)
+
+    ax.set_xlabel("Strecke / km")
+    ax.set_ylabel("Höhe / m")
+    ax.set_title("Farbiges Höhenprofil der Ebike-Strecke")
+    ax.grid(True)
+
+    logger.info("Graph des farbigen Höhenprofils erstellt.")
+
+    return fig
+
 
 if __name__ == "__main__":
     #Logging-Konfiguration
@@ -87,3 +136,10 @@ if __name__ == "__main__":
     gps = GPSData(get_data_from_csv("final_project_input_data.csv"))
     fig_ele = plot_elevation_profile(gps)
     fig_ele.savefig("hoehenprofil.png")
+
+    #Selbsttest: farbiges Höhenprofil mit GPS-Daten aus der csv plotten
+    gps = GPSData(get_data_from_csv("final_project_input_data.csv"))
+    fig_ele_col = plot_colored_elevation_profile(gps)
+    fig_ele_col.savefig("farbiges_hoehenprofil.png")
+    
+    plt.show()
