@@ -1,12 +1,5 @@
 '''
 Hauptprogramm zur Ausführung und Steuerung der E-Bike-Fahrsimulation.
-
-Dieses Skript bildet den zentralen Einstiegspunkt (Entry Point) des Projekts. 
-Es initialisiert das globale Logging-System (aufgeteilt in Terminal- und Datei-Ausgabe), 
-lädt die externen GPS-Rohdaten aus einer CSV-Datei, instanziiert das gewünschte 
-Batteriemodell und startet die zeitschrittbasierte Simulation. Im Anschluss werden 
-die statistischen Kennzahlen ausgegeben und die resultierenden Diagramme generiert, 
-gespeichert sowie interaktiv angezeigt.
 '''
 import logging
 import sys
@@ -16,6 +9,9 @@ import matplotlib.pyplot as plt
 from battery import LiPoBattery
 from gps_data import GPSData
 from ebike_simulation import EBikeSimulation
+from ebike_config import EbikeConfig
+from motor import Motor
+from ebike_dynamics import EbikeDynamics
 from plotting_utils import (
     plot_speed_power_soc,
     plot_colored_elevation_profile,
@@ -30,25 +26,18 @@ matplotlib.use('TkAgg')
 def main() -> None:
     '''
     Hauptfunktion zur Steuerung des gesamten Simulations- und Auswerteprozesses.
-    
-    Übernimmt das Logging-Setup, den Daten-Pipeline-Fluss sowie das Exception-Handling 
-    bei Fehlern während der Dateiverarbeitung oder der physikalischen Berechnung.
     '''
     # --- GLOBALES LOGGING SYSTEM CONTEXT SETUP ---
-    # Gemeinsames Textformat für alle Logger-Ausgaben festlegen
     log_format = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
 
-    # Terminal-Ausgabe: Zeigt INFO, WARNING, ERROR, CRITICAL (unterdrückt DEBUG-Meldungen)
     terminal_output = logging.StreamHandler(sys.stdout)
     terminal_output.setLevel(logging.INFO)
     terminal_output.setFormatter(log_format)
 
-    # Datei-Ausgabe: Schreibt jede Aktivität detailliert mit (inklusive DEBUG)
     file_output = logging.FileHandler("app.log", mode="a", encoding="utf-8")
     file_output.setLevel(logging.DEBUG)
     file_output.setFormatter(log_format)
 
-    # Globales Logging-System aktivieren (Wurzel-Level muss auf DEBUG stehen)
     logging.basicConfig(
         level=logging.DEBUG,
         handlers=[terminal_output, file_output]
@@ -61,26 +50,39 @@ def main() -> None:
         # 1. Daten-Import aus der CSV-Datei
         raw_data = get_data_from_csv("final_project_input_data.csv")
 
-        # 2. Start-Umgebungstemperatur für die thermische Akku-Simulation auslesen
+        # 2. Zentrale Konfiguration EINMALIG instanziieren
+        config = EbikeConfig()
+
+        # 3. Start-Umgebungstemperatur auslesen
         start_temp = raw_data["temperature"].iloc[0]
 
-        # 3. Systemkomponenten instanziieren
+        # 4. Systemkomponenten mit der ZENTRALEN Config initialisieren
         battery = LiPoBattery(
-            capacity_ampere_h=15.0,
+            capacity_ampere_h=getattr(config, "battery_capacity_ah", 15.0),
             initial_temp=start_temp,
             cells_parallel=1,
-            initial_soc=1.0
+            initial_soc=getattr(config, "initial_soc", 1.0)
         )
         gps_obj = GPSData(raw_data)
+        dynamics = EbikeDynamics(config=config)
+        motor = Motor(config=config)
 
-        # 4. Simulations-Orchestrator aufsetzen
-        simulation = EBikeSimulation(battery=battery, gps_data=gps_obj)
+        # 5. Simulations-Orchestrator mit derselben Config und Komponenten starten
+        simulation = EBikeSimulation(
+            battery=battery,
+            gps_data=gps_obj,
+            motor=motor,
+            ebike_dynamics=dynamics,
+            config=config
+        )
 
-        # 5. Simulation ausführen und Ergebnisse aggregieren
+        # 6. Simulation ausführen und Ergebnisse aggregieren
         processed_data = simulation.run()
+
+        # HIER WAR DER FEHLER: Die Berechnung der summary_stats fehlte!
         summary_stats = simulation.summary(processed_data)
 
-        # 6. Ergebnisse formatiert in der Konsole ausgeben
+        # 7. Ergebnisse formatiert in der Konsole ausgeben
         print("\n================ SIMULATIONS-ZUSAMMENFASSUNG ================")
         print(f"Fahrzeit:                  {summary_stats['total_time_s']/60:.1f} min "
               f"({summary_stats['total_time_s']:.0f} s)")
@@ -97,24 +99,21 @@ def main() -> None:
         print(f"Verbrauchter SoC:          {summary_stats['consumed_soc_percent']:.1f} %")
         print("=============================================================\n")
 
-        # 7. Diagramme generieren und als hochauflösende PNG-Dateien exportieren
+        # 8. Diagramme generieren und als hochauflösende PNG-Dateien exportieren
         logger.info("Generiere Diagramme...")
 
-        # Zeitverlauf-Profil (Geschwindigkeit, Leistung, SoC)
         fig_metrics = plot_speed_power_soc(processed_data)
         fig_metrics.savefig("simulations_plot.png", dpi=300, bbox_inches='tight')
 
-        # Standard-Höhenprofil
         fig_elevation_1 = plot_elevation_profile(processed_data)
         fig_elevation_1.savefig("hoehenprofil_plot_1.png", dpi=300, bbox_inches='tight')
 
-        # Farbcodiertes Höhenprofil nach Steigungsgrad
         fig_elevation = plot_colored_elevation_profile(processed_data)
         fig_elevation.savefig("hoehenprofil_plot.png", dpi=300, bbox_inches='tight')
 
         logger.info("Diagramme wurden erfolgreich als PNG gespeichert.")
 
-        # 8. Interaktive matplotlib Benutzeroberfläche öffnen
+        # 9. Interaktive matplotlib Benutzeroberfläche öffnen
         logger.info("Öffne interaktives Diagrammfenster...")
         plt.show()
 

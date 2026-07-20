@@ -112,7 +112,7 @@ if __name__ == "__main__":
     # Lokaler Funktionstest mit einer konstanten Kraft
     F_TEST = 100.0
     T_test = motor.get_torque(F_TEST)
-    I_test = motor.current(F_TEST)
+    I_test = motor.current(T_test)
 
     print("\n================ BERECHNETE MOTORDATEN ================")
     print(motor)
