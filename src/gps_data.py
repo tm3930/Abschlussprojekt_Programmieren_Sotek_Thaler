@@ -59,9 +59,13 @@ class GPSData:
         delta_longitude = np.diff(longitude_rad)
 
         # Haversine-Formel anwenden
-        a_1 = np.sin(delta_latitude / 2.0)**2 + np.cos(latitude_rad[:-1])
-        a_2 = np.cos(latitude_rad[1:]) * np.sin(delta_longitude / 2.0)**2
-        c = 2 * np.arcsin(np.sqrt(a_1 * a_2))
+        a = (
+            np.sin(delta_latitude / 2.0)**2
+            + np.cos(latitude_rad[:-1])
+            * np.cos(latitude_rad[1:])
+            * np.sin(delta_longitude / 2.0)**2
+        )
+        c = 2 * np.arcsin(np.sqrt(a))
         distances = c * 6371000  # 6.371.000 Meter entspricht dem mittleren Erdradius
 
         # Aufsummieren der einzelnen Intervalle, um die Gesamtwegstrecke zu erhalten

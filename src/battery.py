@@ -129,6 +129,10 @@ class Battery(ABC):
 
         table = self.ocv_table
 
+        if not table:
+            logger.warning("OCV-Tabelle ist leer!")
+            return 0.0
+
         if soc <= table[0][0]:
             return table[0][1]
         if soc >= table[-1][0]:

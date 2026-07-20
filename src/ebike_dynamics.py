@@ -11,7 +11,14 @@ mechanische Gesamtleistung des Systems.
 import logging
 import numpy as np
 from ebike_config import EbikeConfig
-
+from constants import (
+    GRAVITY,
+    STD_PRESSURE,
+    STD_TEMP_KELVIN,
+    SEA_LEVEL_TEMP,
+    TEMP_LAPSE_RATE,
+    GAS_CONSTANT_AIR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +61,19 @@ class EbikeDynamics:
         '''
         logger.debug("Berechne Luftwiderstandskraft mit dynamischer Luftdichte")
 
-        # 1. Temperatur in Kelvin umrechnen
-        t_kelvin = temperature + 273.15
+        # Temperatur in Kelvin umrechnen
+        t_kelvin = temperature + STD_TEMP_KELVIN
 
-        # 2. Luftdruck p in Abhängigkeit der Höhe berechnen (Barometrische Höhenformel)
-        # p_0 = 101325 Pa (Standarddruck auf Meereshöhe), 0.0065 K/m ist der Temperaturgradient
-        p = 101325.0 * (1 - (0.0065 * elevation) / 288.15) ** 5.255
+        # Luftdruck in Abhängigkeit der Höhe (barometrische Höhenformel)
+        pressure_exponent = GRAVITY / (GAS_CONSTANT_AIR * TEMP_LAPSE_RATE)
+
+        p = STD_PRESSURE * (
+            1 - (TEMP_LAPSE_RATE * elevation) / SEA_LEVEL_TEMP
+        ) ** pressure_exponent
 
         # 3. Luftdichte rho nach der idealen Gasgleichung berechnen
         # R_s = 287.05 J/(kg*K) ist die spezifische Gaskonstante für trockene Luft
-        rho = p / (287.05 * t_kelvin)
+        rho = p / (GAS_CONSTANT_AIR * t_kelvin)
 
         a = rho * self.config.cw_and_area / 2
 
@@ -82,13 +92,8 @@ class EbikeDynamics:
         Ausgabe:
             np.ndarray: Array mit den berechneten Rollwiderstandskräften in Newton
         '''
-        g = 9.81  # Erdbeschleunigung in m/s²
-        total_mass = self.config.bike_mass + self.config.rider_mass
 
-        # Rollwiderstandskoeffizient für Asphalt (ca. 0.005)
-        c_r = 0.005
-
-        return total_mass * g * np.cos(incline) * c_r
+        return self.config.total_mass * GRAVITY * np.cos(incline) * self.config.c_r
 
     def get_incline_force(self, incline: np.ndarray) -> np.ndarray:
         '''
@@ -103,12 +108,7 @@ class EbikeDynamics:
 
         logger.debug("Berechne Hangabtriebskraft")
 
-        g = 9.81  # Erdbeschleunigung in m/s²
-        total_mass = self.config.bike_mass + self.config.rider_mass
-
-        logger.debug("Hangabtriebskraft Berechnung abgeschlossen")
-
-        return total_mass * g * np.sin(incline)
+        return self.config.total_mass * GRAVITY * np.sin(incline)
 
     def get_total_force(
             self,
@@ -133,11 +133,12 @@ class EbikeDynamics:
 
         logger.debug("Berechne gesamte benötigte Antriebskraft")
 
-        total_mass = self.config.bike_mass + self.config.rider_mass
-
-        logger.debug("gesamte benötigte Antriebskraft Berechnung abgeschlossen")
-
-        return total_mass * acceleration + incline_force + drag_force + rolling_resistance
+        return (
+            self.config.total_mass * acceleration
+            + incline_force
+            + drag_force
+            + rolling_resistance
+        )
 
     def get_power(self, force: np.ndarray, velocity: np.ndarray) -> np.ndarray:
         '''

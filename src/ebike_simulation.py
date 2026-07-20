@@ -16,6 +16,9 @@ from battery import Battery
 from motor import Motor
 from ebike_dynamics import EbikeDynamics
 from gps_data import GPSData
+from ebike_config import EbikeConfig
+
+from constants import MPS_TO_KMH
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,8 @@ class EBikeSimulation:
         battery: Battery,
         gps_data: GPSData,
         motor: Motor = Motor(),
-        ebike_dynamics: EbikeDynamics = EbikeDynamics()
+        ebike_dynamics: EbikeDynamics = EbikeDynamics(),
+        config: EbikeConfig = EbikeConfig()
     ) -> None:
         '''
         Initialisiert den Simulations-Orchestrator mit den erforderlichen Subsystemen.
@@ -45,19 +49,12 @@ class EBikeSimulation:
         self.gps_data = gps_data
         self.motor = motor
         self.ebike_dynamics = ebike_dynamics
+        self.config = config
 
     def run(self) -> pd.DataFrame:
-        '''
-        Führt die zeitschrittbasierte Fahrsimulation aus. 
-
-        Der Prozess umfasst das Glätten der GPS-Eingangsdaten, 
-        die physikalische Kraft- und Leistungsberechnung sowie die iterative numerische 
-        Integration des Batterie-Ladezustands (SoC) und der Batterietemperatur unter Last.
-
-        Ausgabe:
-            pd.DataFrame: Das erweiterte DataFrame, welches alle berechneten physikalischen 
-                          und elektrischen Profile enthält.
-        '''
+        """
+        Führt die zeitschrittbasierte Fahrsimulation aus.
+        """
         logger.info("Starte E-Bike Simulation...")
 
         # GPS-Fahrdaten extrahieren
@@ -66,27 +63,25 @@ class EBikeSimulation:
         temperature = data["temperature"].to_numpy()
         distance = self.gps_data.get_distance()
 
-        # Roh-Geschwindigkeit berechnen und sofort glätten
+        # 1. Glättung mit Parametern aus EbikeConfig
         velocity_raw = self.gps_data.get_velocity(distance)
         velocity = (
             pd.Series(velocity_raw)
-            .rolling(window=5, min_periods=1, center=True)
+            .rolling(window=self.config.velocity_window_size, min_periods=1, center=True)
             .mean().to_numpy()
         )
 
-        # Roh-Beschleunigung berechnen und ebenfalls glätten, um extreme Spitzen zu kappen
         accel_raw = self.gps_data.get_acceleration(velocity)
         acceleration = (
             pd.Series(accel_raw)
-            .rolling(window=10, min_periods=1, center=True)
+            .rolling(window=self.config.accel_window_size, min_periods=1, center=True)
             .mean().to_numpy()
         )
 
-        # Steigung berechnen und glätten
         incline_raw = self.gps_data.get_incline(distance)
         incline = (
             pd.Series(incline_raw)
-            .rolling(window=10, min_periods=1, center=True)
+            .rolling(window=self.config.incline_window_size, min_periods=1, center=True)
             .mean().to_numpy()
         )
 
@@ -100,7 +95,6 @@ class EBikeSimulation:
         )
         power = self.ebike_dynamics.get_power(forward_force, velocity)
 
-        # Zeitvektor extrahieren und Arrays für die Akku-Profile vorberereiten
         times = data["time"].to_numpy()
         n_points = len(times)
 
@@ -112,53 +106,44 @@ class EBikeSimulation:
 
         dissipated_power_profile = np.zeros(n_points)
 
-        # Zeitschrittbasierte Simulationsschleife für das elektro-thermische Batteriemodell
+        # Zeitschrittbasierte Simulationsschleife
         for i in range(n_points - 1):
             duration = times[i+1] - times[i]
 
-            # 1. Kräfte & Leistung (inkl. Rollwiderstand) für den aktuellen Zeitschritt bestimmen
             f_roll = self.ebike_dynamics.get_rolling_resistance(incline[i+1])
             f_drive = (
                 self.ebike_dynamics
                 .get_total_force(acceleration[i+1], incline_force[i+1], drag_force[i+1], f_roll)
             )
 
-            # Aktuelle Geschwindigkeit in km/h umrechnen für die Abregelungsfunktion
-            v_kmh = velocity[i+1] * 3.6
+            v_kmh = velocity[i+1] * MPS_TO_KMH
 
-            # --- Gesetzliche Begrenzung auf 25 km/h abbilden ---
-            if f_drive > 0:  # Motorbetrieb (Unterstützung beim Vortrieb benötigt)
-                if v_kmh >= 25.0:
-                    f_motor = 0.0  # Gesetzliche Abschaltung über 25 km/h (Fahrer tritt allein)
+            # --- Gesetzliche Begrenzung auf 25 km/h ---
+            if f_drive > 0:
+                if v_kmh >= self.config.max_support_speed_kmh:
+                    f_motor = 0.0
                 else:
-                    # Der Motor übernimmt im Regelbereich 35% der Last im ECO Modus
-                    f_motor = f_drive * 0.35
-            else:  # Generatorbetrieb / Bremsen (Bergabfahrt)
-                # Hier bleibt die volle negative Kraft als Generator wirksam
+                    f_motor = f_drive * self.config.eco_assist_factor
+            else:
                 f_motor = f_drive
 
-            # Theoretischer Strombedarf am Rad basierend auf der modifizierten Motor-Kraft
             motor_current = self.motor.current(self.motor.get_torque(f_motor))
 
-            # --- Wirkungsgrad und Leistungsgrenzen (Batteriesicht) ---
-            efficiency = 0.85              # Angenommener Gesamtwirkungsgrad des Antriebssystems
-            max_charge_current = 10.0      # Limit für Rekuperation in Ampere
-            max_discharge_current = 15.0   # Limit für Motorunterstützung in Ampere (ca. 500W Peak)
+            # --- Wirkungsgrad und Leistungsgrenzen aus ZENTRALER Config ---
+            efficiency = self.config.system_efficiency
+            max_charge_current = self.config.max_charge_current_a
+            max_discharge_current = self.config.max_discharge_current_a
 
             if motor_current > 0:  # Motorbetrieb (Entladen)
-                # Höherer Strombedarf aus der Batterie durch Systemverluste
                 ideal_battery_current = motor_current / efficiency
-                # Begrenzung auf maximalen Entladestrom
                 battery_current = min(ideal_battery_current, max_discharge_current)
 
-            elif motor_current < 0:  # Generatorbetrieb (Laden / Rekuperation)
-                # Geringerer Ladestrom, der aufgrund von Verlusten in der Batterie ankommt
+            elif motor_current < 0:  # Generatorbetrieb (Laden)
                 ideal_charge_current = abs(motor_current) * efficiency
 
                 if self.battery.is_full() or ideal_charge_current > max_charge_current:
                     effective_charge = min(ideal_charge_current, max_charge_current)
                     battery_current = -effective_charge
-                    # Überschüssige Energie thermisch "verheizen"
                     dissipated_power_profile[i+1] = (
                         (ideal_charge_current - effective_charge) * self.battery.terminal_voltage()
                     )
@@ -167,20 +152,23 @@ class EBikeSimulation:
             else:
                 battery_current = 0.0
 
-            # 2. Thermik-Update (Umgebungsausgleich + Stromwärmeverluste)
+            # --- Thermik-Update mit ZENTRALEN Parametern ---
             self.battery.temperature += (
-                (data["temperature"].iloc[i] - self.battery.temperature) * 0.005
+                (data["temperature"].iloc[i] - self.battery.temperature)
+                * self.config.cooling_coefficient
+                * duration
             )
             self.battery.temperature += (
-                (battery_current**2 * self.battery.get_effective_resistance() * duration) / 5000.0
+                (battery_current**2 * self.battery.get_effective_resistance() * duration)
+                / self.config.battery_thermal_mass_j_k
             )
 
-            # 3. Akku-Kapazitätsupdate durchführen und Profile speichern
+            # Akku-Kapazitätsupdate durchführen
             self.battery.apply_current(battery_current, duration)
             soc_profile[i+1] = self.battery.soc
             temp_profile[i+1] = self.battery.temperature
 
-        # Alle berechneten Vektoren zurück in das DataFrame schreiben
+        # Vektoren ins DataFrame schreiben
         data["distance"] = distance
         data["velocity"] = velocity
         data["acceleration"] = acceleration
