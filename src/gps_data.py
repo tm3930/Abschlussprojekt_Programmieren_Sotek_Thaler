@@ -154,6 +154,11 @@ class GPSData:
 
         return np.concatenate(([0.0], incline_intervals))
 
+    def __str__(self) -> str:
+        anzahl_punkte = len(self.data)
+        dauer = self.data_time[-1] - self.data_time[0] if anzahl_punkte > 0 else 0
+        return f"GPSData ({anzahl_punkte} Messpunkte, {dauer:.0f} s Gesamtdauer)"
+
 
 if __name__ == "__main__":
     import sys

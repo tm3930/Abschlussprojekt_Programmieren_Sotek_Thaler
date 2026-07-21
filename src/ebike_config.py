@@ -61,6 +61,19 @@ class EbikeConfig:
 
         logger.info("Daten aus der E-Bike-Konfiguration erfolgreich erfasst.")
 
+    def __str__(self) -> str:
+        '''
+        Erzeugt eine übersichtliche Text-Repräsentation der wichtigsten Konfigurationsparameter.
+        '''
+        return (
+            f"EbikeConfig ("
+            f"Masse: {self.total_mass:.1f} kg"
+            f"[Fahrer: {self.rider_mass:.1f} kg, Bike: {self.bike_mass:.1f} kg], "
+            f"Km: {self.motor_constant:.2f} Nm/A, "
+            f"Rad-Ø: {self.diameter:.3f} m, "
+            f"Akku: {self.battery_capacity_ah:.1f} Ah)"
+        )
+
 
 if __name__ == "__main__":
     import sys

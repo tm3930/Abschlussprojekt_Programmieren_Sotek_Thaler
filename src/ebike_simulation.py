@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from numba import njit
 
-from battery import Battery
+from battery import Battery, LiPoBattery
 from motor import Motor
 from ebike_dynamics import EbikeDynamics
 from gps_data import GPSData
@@ -43,10 +43,7 @@ def _run_simulation_kernel(
     max_discharge_current: float,
     ocv_table: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    '''
-    JIT-kompiliertes Herzstück der Simulation. Führt die rekursive Zeit-Integration
-    für SoC, Temperatur und Verluste ohne Python-Overhead in C-Geschwindigkeit aus.
-    '''
+
     n_points = len(times)
     soc_profile = np.zeros(n_points)
     temp_profile = np.zeros(n_points)
@@ -62,44 +59,40 @@ def _run_simulation_kernel(
         dt = times[i+1] - times[i]
         motor_current = motor_current_arr[i+1]
 
-        # 1. Bestimmung des Akku-Stroms unter Berücksichtigung von Wirkungsgrad und Limits
+        # 1. Bestimmung des effektiven Akku-Stroms
         if motor_current > 0.0:  # Entladen
             ideal_battery_current = motor_current / efficiency
             battery_current = min(ideal_battery_current, max_discharge_current)
+            dissipated_power_profile[i+1] = 0.0
+
         elif motor_current < 0.0:  # Laden / Rekuperation
             ideal_charge_current = abs(motor_current) * efficiency
             is_full = curr_soc >= 1.0 - 1e-9
 
-            if is_full or ideal_charge_current > max_charge_current:
-                effective_charge = min(ideal_charge_current, max_charge_current)
-                battery_current = -effective_charge
-
-                # OCV per linearer Interpolation ermitteln
-                if curr_soc <= ocv_table[0, 0]:
-                    ocv = ocv_table[0, 1]
-                elif curr_soc >= ocv_table[-1, 0]:
-                    ocv = ocv_table[-1, 1]
-                else:
-                    ocv = ocv_table[0, 1]
-                    for j in range(len(ocv_table) - 1):
-                        s0, v0 = ocv_table[j, 0], ocv_table[j, 1]
-                        s1, v1 = ocv_table[j+1, 0], ocv_table[j+1, 1]
-                        if s0 <= curr_soc <= s1:
-                            ocv = v0 + (v1 - v0) * (curr_soc - s0) / (s1 - s0)
-                            break
-
-                # Effektiven Innenwiderstand berechnen
-                temp_factor = 1.0 + 0.05 * max(0.0, 25.0 - curr_temp)
-                effective_r = internal_resistance * temp_factor
-                terminal_voltage = ocv - effective_r * battery_current
-
-                dissipated_power_profile[i+1] = (
-                    (ideal_charge_current - effective_charge) * terminal_voltage
-                )
+            # Strom begrenzen, falls Akku voll oder Max-Ladestrom überschritten
+            if is_full:
+                effective_charge = 0.0
             else:
-                battery_current = -ideal_charge_current
+                effective_charge = min(ideal_charge_current, max_charge_current)
+
+            # battery_current ist negativ für den Ladefall
+            battery_current = -effective_charge
+
+            # OCV elegant via np.interp ermitteln (Numba-kompatibel)
+            ocv = np.interp(curr_soc, ocv_table[:, 0], ocv_table[:, 1])
+
+            # Effektiver Innenwiderstand & Klemmspannung
+            temp_factor = 1.0 + 0.05 * max(0.0, 25.0 - curr_temp)
+            effective_r = internal_resistance * temp_factor
+            terminal_voltage = ocv - effective_r * battery_current
+
+            # Nicht nutzbare Rekuperationsleistung (Clipping-Verluste) aufzeichnen
+            uncapped_lost_current = ideal_charge_current - effective_charge
+            dissipated_power_profile[i+1] = uncapped_lost_current * terminal_voltage
+
         else:
             battery_current = 0.0
+            dissipated_power_profile[i+1] = 0.0
 
         # 2. Thermik-Update
         temp_factor = 1.0 + 0.05 * max(0.0, 25.0 - curr_temp)
@@ -110,10 +103,7 @@ def _run_simulation_kernel(
 
         # 3. Kapazitätsupdate (SoC)
         curr_soc -= (battery_current * dt) / capacity_ampere_s
-        if curr_soc < 0.0:
-            curr_soc = 0.0
-        elif curr_soc > 1.0:
-            curr_soc = 1.0
+        curr_soc = max(0.0, min(curr_soc, 1.0))
 
         soc_profile[i+1] = curr_soc
         temp_profile[i+1] = curr_temp
@@ -263,8 +253,16 @@ class EBikeSimulation:
         times = data["time"].to_numpy()
         power = data["power"].to_numpy()
 
-        mechanical_energy_joule = np.trapezoid(power, times)
+        # Positive Leistung = Vom System aufgebrachte mechanische Antriebsenergie
+        positive_power = np.maximum(power, 0.0)
+        mechanical_energy_joule = np.trapezoid(positive_power, times)
         mechanical_energy_wh = mechanical_energy_joule / 3600.0
+
+        # Optional: Generierte Rekuperationsenergie (negativ) separat auswerten
+        recuperated_power = np.minimum(power, 0.0)
+        recuperated_energy_joule = np.abs(np.trapezoid(recuperated_power, times))
+        recuperated_energy_wh = recuperated_energy_joule / 3600.0
+
         dissipated_energy_joule = np.trapezoid(data["dissipated_power"].to_numpy(), times)
         dissipated_energy_wh = dissipated_energy_joule / 3600.0
 
@@ -281,6 +279,7 @@ class EBikeSimulation:
             "elevation_loss_m": float(negative_elevation_loss),
             "max_power_w": float(max_power_w),
             "mechanical_energy_wh": float(mechanical_energy_wh),
+            "recuperated_energy_wh": float(recuperated_energy_wh),
             "start_soc_percent": float(start_soc),
             "end_soc_percent": float(end_soc),
             "consumed_soc_percent": float(soc_consumed),
@@ -290,24 +289,100 @@ class EBikeSimulation:
         logger.info("Summary erfolgreich berechnet.")
         return stats
 
-    def export_results(self, data: pd.DataFrame) -> None:
+    def export_results(self, data: pd.DataFrame, filename: str = "simulation_results.csv") -> Path:
         '''
-        Exportiert die prozessierten Simulationsdaten in eine CSV-Datei.
-        '''
-        logger.info("Starte Export der Simulationsdaten...")
+        Exportiert das DataFrame mit den Simulationsergebnissen als CSV-Datei
+        in das Verzeichnis 'data/processed'.
 
+        Eingabe:
+            data: Pandas DataFrame mit den Simulationsergebnissen.
+            filename: Name der Ziel-CSV-Datei (Standard: "simulation_results.csv").
+
+        Ausgabe:
+            Path: Absoluter Pfad zur gespeicherten CSV-Datei.
+        '''
+        logger.info("Starte Export der Simulationsergebnisse...")
+
+        if data.empty:
+            logger.error("Export abgebrochen: Das übergebene DataFrame ist leer.")
+            raise ValueError("Das DataFrame enthält keine Daten zum Exportieren.")
+
+        # Projekt-Stammverzeichnis ermitteln (analog zu data_from_csv.py)
         base_dir = Path(__file__).resolve().parent.parent
-        output_dir = base_dir / "data" / "processed"
-        output_path = output_dir / "simulated_ebike_data.csv"
+        target_dir = base_dir / "data" / "processed"
+
+        # Zielverzeichnis erstellen, falls es noch nicht existiert
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        file_path = target_dir / filename
 
         try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            data.to_csv(output_path, sep=";", index=False)
-            logger.info("Simulationsdaten erfolgreich exportiert nach: %s", output_path)
+            # CSV-Export mit Semikolon als Trennzeichen (analog zum Einleseformat)
+            data.to_csv(file_path, sep=";", index=False, float_format="%.6f")
+            logger.info("Simulationsergebnisse erfolgreich unter '%s' gespeichert.", file_path)
+        except Exception as e:
+            logger.error("Fehler beim Speichern der CSV-Datei '%s': %s", file_path, e)
+            raise IOError(f"Die Datei konnte nicht gespeichert werden: {e}") from e
 
-        except OSError as e:
-            logger.error(
-                "Fehler beim Erstellen des Export-Verzeichnisses oder beim Schreiben der Datei: %s",
-                e
-            )
-            raise RuntimeError(f"Export fehlgeschlagen: {e}") from e
+        return file_path
+
+    def __str__(self) -> str:
+        '''
+        Erzeugt eine kurze Übersicht über das geladene Simulations-Setup.
+        '''
+        return (
+            f"EBikeSimulation ("
+            f"Akku: {type(self.battery).__name__}, "
+            f"Datenpunkte: {len(self.gps_data.data)}, "
+            f"Gesamtmasse: {self.config.total_mass:.1f} kg)"
+        )
+
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    logger.info("Starte Selbsttest ebike_simulation...")
+
+    try:
+        from data_from_csv import get_data_from_csv
+
+        # 1. Konfiguration & Daten laden
+        cfg = EbikeConfig()
+        raw_data = get_data_from_csv("final_project_input_data.csv")
+        start_temp = raw_data["temperature"].iloc[0]
+
+        # 2. Objekte mit cfg instanziieren
+        bat = LiPoBattery(capacity_ampere_h=cfg.battery_capacity_ah, initial_temp=start_temp)
+        gps = GPSData(raw_data)
+        mot = Motor(cfg)
+        dyn = EbikeDynamics(cfg)
+
+        # 3. Simulation zusammenbauen
+        sim = EBikeSimulation(
+            battery=bat,
+            gps_data=gps,
+            motor=mot,
+            ebike_dynamics=dyn,
+            config=cfg
+        )
+
+        print(f"\n{sim}\n")
+
+        # Ausführung & Zusammenfassung
+        results = sim.run()
+        sim_stats = sim.summary(results)  # Umbenannt von stats -> sim_stats
+
+        print("=== TEST-ERGEBNIS ===")
+        print(
+            f"Strecke: {sim_stats['total_distance_km']:.2f} km | "
+            f"Zeit: {sim_stats['total_time_s'] / 60.0:.1f} min"
+        )
+        print(
+            f"Energie: {sim_stats['mechanical_energy_wh']:.1f} Wh | "
+            f"SoC: {sim_stats['start_soc_percent']:.0f}% -> {sim_stats['end_soc_percent']:.0f}%\n"
+        )
+
+    except Exception as e:
+        logger.error("Test fehlgeschlagen: %s", e)
+        raise

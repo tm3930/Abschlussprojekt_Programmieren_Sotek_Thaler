@@ -3,6 +3,7 @@ Hauptprogramm zur Ausführung und Steuerung der E-Bike-Fahrsimulation.
 '''
 import logging
 import sys
+from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -18,6 +19,7 @@ from plotting_utils import (
     plot_elevation_profile
 )
 from data_from_csv import get_data_from_csv
+from ebike_reporting import generate_report_reportlab
 
 
 # Setzt das interaktive Backend für die grafische Anzeige vor dem Import von pyplot
@@ -82,6 +84,11 @@ def main() -> None:
         # HIER WAR DER FEHLER: Die Berechnung der summary_stats fehlte!
         summary_stats = simulation.summary(processed_data)
 
+        exported_file_path = simulation.export_results(
+            processed_data, filename="simulation_results.csv"
+        )
+        logger.info("Ergebnisse wurden erfolgreich nach '%s' exportiert.", exported_file_path)
+
         # 7. Ergebnisse formatiert in der Konsole ausgeben
         print("\n================ SIMULATIONS-ZUSAMMENFASSUNG ================")
         print(f"Fahrzeit:                  {summary_stats['total_time_s']/60:.1f} min "
@@ -102,16 +109,40 @@ def main() -> None:
         # 8. Diagramme generieren und als hochauflösende PNG-Dateien exportieren
         logger.info("Generiere Diagramme...")
 
-        fig_metrics = plot_speed_power_soc(processed_data)
-        fig_metrics.savefig("simulations_plot.png", dpi=300, bbox_inches='tight')
+        # 1. Projekt-Stammverzeichnis ermitteln (analog zur restlichen Projektstruktur)
+        base_dir = Path(__file__).resolve().parent.parent
+        results_dir = base_dir / "results"
 
-        fig_elevation_1 = plot_elevation_profile(processed_data)
-        fig_elevation_1.savefig("hoehenprofil_plot_1.png", dpi=300, bbox_inches='tight')
+        # 2. Kontrollieren, ob der Ordner existiert, falls nicht -> erstellen
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        fig_metrics = plot_speed_power_soc(processed_data)
+        fig_metrics.savefig(results_dir / "simulations_plot.png",
+                            dpi=300, bbox_inches='tight')
+
+        fig_elevation_c = plot_elevation_profile(processed_data)
+        fig_elevation_c.savefig(results_dir / "hoehenprofil_plot.png",
+                                dpi=300, bbox_inches='tight')
 
         fig_elevation = plot_colored_elevation_profile(processed_data)
-        fig_elevation.savefig("hoehenprofil_plot.png", dpi=300, bbox_inches='tight')
+        fig_elevation.savefig(results_dir / "hoehenprofil_farbig_plot.png",
+                              dpi=300, bbox_inches='tight')
 
         logger.info("Diagramme wurden erfolgreich als PNG gespeichert.")
+
+        # Liste der gespeicherten Bilder erstellen
+        plot_pfade = [
+            results_dir / "simulations_plot.png",
+            results_dir / "hoehenprofil_plot.png",
+            results_dir / "hoehenprofil_farbig_plot.png"
+        ]
+
+        # Zielpfad für das PDF
+        pdf_ausgabe = base_dir / "results" / "ebike_simulation_analyse.pdf"
+
+        # Generator mit den ermittelten summary_stats und Plots aufrufen
+        generate_report_reportlab(summary_stats, plot_pfade, str(pdf_ausgabe))
+        logger.info("Abschlussbericht wurde als PDF gespeichert.")
 
         # 9. Interaktive matplotlib Benutzeroberfläche öffnen
         logger.info("Öffne interaktives Diagrammfenster...")
