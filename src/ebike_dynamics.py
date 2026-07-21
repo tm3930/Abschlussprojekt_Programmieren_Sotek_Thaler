@@ -156,6 +156,15 @@ class EbikeDynamics:
 
         return np.multiply(force, velocity)
 
+    def __str__(self) -> str:
+        '''
+        Erzeugt eine kurze Repräsentation des Dynamik-Modells.
+        '''
+        return (
+            f"EbikeDynamics (Gesamtmasse: {self.config.total_mass:.1f} kg, "
+            f"cw*A: {self.config.cw_and_area:.4f} m²)"
+        )
+
 
 if __name__ == "__main__":
     import sys
