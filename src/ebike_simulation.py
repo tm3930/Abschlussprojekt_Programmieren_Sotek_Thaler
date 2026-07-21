@@ -11,6 +11,7 @@ from pathlib import Path
 import logging
 import numpy as np
 import pandas as pd
+from numba import njit
 
 from battery import Battery
 from motor import Motor
@@ -23,6 +24,106 @@ from constants import MPS_TO_KMH
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# NUMBA KERNEL: Hochperformante, JIT-kompilierte Simulations-Engine
+# =============================================================================
+@njit
+def _run_simulation_kernel(
+    times: np.ndarray,
+    env_temp: np.ndarray,
+    motor_current_arr: np.ndarray,
+    initial_soc: float,
+    initial_temp: float,
+    capacity_ampere_s: float,
+    internal_resistance: float,
+    thermal_mass: float,
+    cooling_coeff: float,
+    efficiency: float,
+    max_charge_current: float,
+    max_discharge_current: float,
+    ocv_table: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    '''
+    JIT-kompiliertes Herzstück der Simulation. Führt die rekursive Zeit-Integration
+    für SoC, Temperatur und Verluste ohne Python-Overhead in C-Geschwindigkeit aus.
+    '''
+    n_points = len(times)
+    soc_profile = np.zeros(n_points)
+    temp_profile = np.zeros(n_points)
+    dissipated_power_profile = np.zeros(n_points)
+
+    soc_profile[0] = initial_soc
+    temp_profile[0] = initial_temp
+
+    curr_soc = initial_soc
+    curr_temp = initial_temp
+
+    for i in range(n_points - 1):
+        dt = times[i+1] - times[i]
+        motor_current = motor_current_arr[i+1]
+
+        # 1. Bestimmung des Akku-Stroms unter Berücksichtigung von Wirkungsgrad und Limits
+        if motor_current > 0.0:  # Entladen
+            ideal_battery_current = motor_current / efficiency
+            battery_current = min(ideal_battery_current, max_discharge_current)
+        elif motor_current < 0.0:  # Laden / Rekuperation
+            ideal_charge_current = abs(motor_current) * efficiency
+            is_full = curr_soc >= 1.0 - 1e-9
+
+            if is_full or ideal_charge_current > max_charge_current:
+                effective_charge = min(ideal_charge_current, max_charge_current)
+                battery_current = -effective_charge
+
+                # OCV per linearer Interpolation ermitteln
+                if curr_soc <= ocv_table[0, 0]:
+                    ocv = ocv_table[0, 1]
+                elif curr_soc >= ocv_table[-1, 0]:
+                    ocv = ocv_table[-1, 1]
+                else:
+                    ocv = ocv_table[0, 1]
+                    for j in range(len(ocv_table) - 1):
+                        s0, v0 = ocv_table[j, 0], ocv_table[j, 1]
+                        s1, v1 = ocv_table[j+1, 0], ocv_table[j+1, 1]
+                        if s0 <= curr_soc <= s1:
+                            ocv = v0 + (v1 - v0) * (curr_soc - s0) / (s1 - s0)
+                            break
+
+                # Effektiven Innenwiderstand berechnen
+                temp_factor = 1.0 + 0.05 * max(0.0, 25.0 - curr_temp)
+                effective_r = internal_resistance * temp_factor
+                terminal_voltage = ocv - effective_r * battery_current
+
+                dissipated_power_profile[i+1] = (
+                    (ideal_charge_current - effective_charge) * terminal_voltage
+                )
+            else:
+                battery_current = -ideal_charge_current
+        else:
+            battery_current = 0.0
+
+        # 2. Thermik-Update
+        temp_factor = 1.0 + 0.05 * max(0.0, 25.0 - curr_temp)
+        effective_r = internal_resistance * temp_factor
+
+        curr_temp += (env_temp[i] - curr_temp) * cooling_coeff * dt
+        curr_temp += (battery_current**2 * effective_r * dt) / thermal_mass
+
+        # 3. Kapazitätsupdate (SoC)
+        curr_soc -= (battery_current * dt) / capacity_ampere_s
+        if curr_soc < 0.0:
+            curr_soc = 0.0
+        elif curr_soc > 1.0:
+            curr_soc = 1.0
+
+        soc_profile[i+1] = curr_soc
+        temp_profile[i+1] = curr_temp
+
+    return soc_profile, temp_profile, dissipated_power_profile
+
+
+# =============================================================================
+# CLASS DEFINITION
+# =============================================================================
 class EBikeSimulation:
     '''
     Klasse zur Durchführung, Auswertung und zum Export der gesamten E-Bike Simulation.
@@ -38,12 +139,6 @@ class EBikeSimulation:
     ) -> None:
         '''
         Initialisiert den Simulations-Orchestrator mit den erforderlichen Subsystemen.
-
-        Eingabe:
-            battery: Instanz eines Batteriesystems (z.B. LiPoBattery oder NMCBattery).
-            gps_data: Instanz mit den geladenen und vorverarbeiteten GPS-Rohdaten.
-            motor: Instanz des Motormodells zur Drehmoment- und Stromberechnung.
-            ebike_dynamics: Instanz des Dynamikmodells für die physikalische Kraftberechnung.
         '''
         self.battery = battery
         self.gps_data = gps_data
@@ -55,7 +150,7 @@ class EBikeSimulation:
         """
         Führt die zeitschrittbasierte Fahrsimulation aus.
         """
-        logger.info("Starte E-Bike Simulation...")
+        logger.info("Starte E-Bike Simulation (mit Numba-Beschleunigung)...")
 
         # GPS-Fahrdaten extrahieren
         data = self.gps_data.data.copy()
@@ -96,77 +191,43 @@ class EBikeSimulation:
         power = self.ebike_dynamics.get_power(forward_force, velocity)
 
         times = data["time"].to_numpy()
-        n_points = len(times)
 
-        soc_profile = np.zeros(n_points)
-        soc_profile[0] = self.battery.soc
+        # Vollständig vektorisierte Vorberechnung der Kräfte & Ströme
+        v_kmh = velocity * MPS_TO_KMH
+        f_motor = np.where(
+            forward_force > 0,
+            np.where(
+                v_kmh >= self.config.max_support_speed_kmh,
+                0.0,
+                forward_force * self.config.eco_assist_factor
+            ),
+            forward_force
+        )
+        motor_current_arr = self.motor.current(self.motor.get_torque(f_motor))
 
-        temp_profile = np.zeros(n_points)
-        temp_profile[0] = self.battery.temperature
+        # OCV-Kennlinie als 2D-NumPy-Array für den Numba-Kernel aufbereiten
+        ocv_array = np.array(self.battery.ocv_table, dtype=np.float64)
 
-        dissipated_power_profile = np.zeros(n_points)
+        # Aufruf des JIT-kompilierten Kernels (keine Python-Schleife)
+        soc_profile, temp_profile, dissipated_power_profile = _run_simulation_kernel(
+            times=times,
+            env_temp=temperature,
+            motor_current_arr=motor_current_arr,
+            initial_soc=float(self.battery.soc),
+            initial_temp=float(self.battery.temperature),
+            capacity_ampere_s=float(self.battery.capacity_ampere_s),
+            internal_resistance=float(self.battery.internal_resistance),
+            thermal_mass=float(self.config.battery_thermal_mass_j_k),
+            cooling_coeff=float(self.config.cooling_coefficient),
+            efficiency=float(self.config.system_efficiency),
+            max_charge_current=float(self.config.max_charge_current_a),
+            max_discharge_current=float(self.config.max_discharge_current_a),
+            ocv_table=ocv_array
+        )
 
-        # Zeitschrittbasierte Simulationsschleife
-        for i in range(n_points - 1):
-            duration = times[i+1] - times[i]
-
-            f_roll = self.ebike_dynamics.get_rolling_resistance(incline[i+1])
-            f_drive = (
-                self.ebike_dynamics
-                .get_total_force(acceleration[i+1], incline_force[i+1], drag_force[i+1], f_roll)
-            )
-
-            v_kmh = velocity[i+1] * MPS_TO_KMH
-
-            # --- Gesetzliche Begrenzung auf 25 km/h ---
-            if f_drive > 0:
-                if v_kmh >= self.config.max_support_speed_kmh:
-                    f_motor = 0.0
-                else:
-                    f_motor = f_drive * self.config.eco_assist_factor
-            else:
-                f_motor = f_drive
-
-            motor_current = self.motor.current(self.motor.get_torque(f_motor))
-
-            # --- Wirkungsgrad und Leistungsgrenzen aus ZENTRALER Config ---
-            efficiency = self.config.system_efficiency
-            max_charge_current = self.config.max_charge_current_a
-            max_discharge_current = self.config.max_discharge_current_a
-
-            if motor_current > 0:  # Motorbetrieb (Entladen)
-                ideal_battery_current = motor_current / efficiency
-                battery_current = min(ideal_battery_current, max_discharge_current)
-
-            elif motor_current < 0:  # Generatorbetrieb (Laden)
-                ideal_charge_current = abs(motor_current) * efficiency
-
-                if self.battery.is_full() or ideal_charge_current > max_charge_current:
-                    effective_charge = min(ideal_charge_current, max_charge_current)
-                    battery_current = -effective_charge
-                    dissipated_power_profile[i+1] = (
-                        (ideal_charge_current - effective_charge) * self.battery.terminal_voltage()
-                    )
-                else:
-                    battery_current = -ideal_charge_current
-            else:
-                battery_current = 0.0
-
-            # --- Thermik-Update mit ZENTRALEN Parametern ---
-            self.battery.temperature += (
-                (data["temperature"].iloc[i] - self.battery.temperature)
-                * self.config.cooling_coefficient
-                * duration
-            )
-            self.battery.temperature += (
-                (battery_current**2 * self.battery.get_effective_resistance() * duration)
-                / self.config.battery_thermal_mass_j_k
-            )
-
-            # Akku-Kapazitätsupdate durchführen
-            self.battery.apply_current(battery_current, duration)
-            soc_profile[i+1] = self.battery.soc
-            temp_profile[i+1] = self.battery.temperature
+        # Zustand des Akkus nach der Simulation synchronisieren
+        self.battery.soc = soc_profile[-1]
+        self.battery.temperature = temp_profile[-1]
 
         # Vektoren ins DataFrame schreiben
         data["distance"] = distance
@@ -185,46 +246,32 @@ class EBikeSimulation:
     def summary(self, data: pd.DataFrame) -> dict:
         '''
         Erstellt eine zusammenfassende Statistik über die durchgeführte E-Bike-Simulation.
-
-        Eingabe:
-            data: Das von run() zurückgegebene DataFrame mit allen Simulationswerten.
-
-        Ausgabe:
-            dict: Ein Dictionary mit den wichtigsten aggregierten Kennzahlen der Fahrt.
         '''
         logger.info("Erstelle Simulations-Zusammenfassung (Summary)...")
 
-        # 1. Zeitberechnung
         total_time_s = data["time"].iloc[-1] - data["time"].iloc[0]
-
-        # 2. Strecken- und Geschwindigkeitsberechnung
         total_distance_m = data["distance"].iloc[-1]
         avg_velocity_kmh = data["velocity"].mean() * 3.6
         max_velocity_kmh = data["velocity"].max() * 3.6
 
-        # 3. Höhenprofil-Statistik (kumulierte Höhenmeter)
         delta_ele = np.diff(data["ele"].to_numpy())
         positive_elevation_gain = np.sum(delta_ele[delta_ele > 0])
         negative_elevation_loss = np.sum(np.abs(delta_ele[delta_ele < 0]))
 
-        # 4. Leistungs- und Energieberechnung
         max_power_w = data["power"].max()
 
         times = data["time"].to_numpy()
         power = data["power"].to_numpy()
 
-        # Numerische Integration der mechanischen und dissipierten Leistung über die Zeit
         mechanical_energy_joule = np.trapezoid(power, times)
         mechanical_energy_wh = mechanical_energy_joule / 3600.0
         dissipated_energy_joule = np.trapezoid(data["dissipated_power"].to_numpy(), times)
         dissipated_energy_wh = dissipated_energy_joule / 3600.0
 
-        # 5. Akku-Statistik
         start_soc = data["soc"].iloc[0] * 100.0
         end_soc = data["soc"].iloc[-1] * 100.0
         soc_consumed = start_soc - end_soc
 
-        # 6. Ergebnisse in Dictionary strukturieren
         stats = {
             "total_time_s": float(total_time_s),
             "total_distance_km": float(total_distance_m / 1000.0),
@@ -246,23 +293,15 @@ class EBikeSimulation:
     def export_results(self, data: pd.DataFrame) -> None:
         '''
         Exportiert die prozessierten Simulationsdaten in eine CSV-Datei.
-        Legt den Zielordner automatisch an, falls er noch nicht existiert.
-
-        Eingabe:
-            data: Das Pandas DataFrame mit den berechneten Simulationsergebnissen.
         '''
         logger.info("Starte Export der Simulationsdaten...")
 
-        # Pfad zur CSV-Datei dynamisch ermitteln (data/processed/simulated_ebike_data.csv)
         base_dir = Path(__file__).resolve().parent.parent
         output_dir = base_dir / "data" / "processed"
         output_path = output_dir / "simulated_ebike_data.csv"
 
         try:
-            # Falls die Ordnerstruktur 'data/processed/' noch nicht existiert, erstellen
             output_dir.mkdir(parents=True, exist_ok=True)
-
-            # Abspeichern (mit Semikolon getrennt, ohne den Pandas-Index)
             data.to_csv(output_path, sep=";", index=False)
             logger.info("Simulationsdaten erfolgreich exportiert nach: %s", output_path)
 
