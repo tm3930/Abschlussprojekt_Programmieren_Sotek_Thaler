@@ -36,7 +36,7 @@ class Battery(ABC):
         Konstruktor zur Initialisierung des Akkus und Validierung der Parameter.
 
         Eingabe:
-            capacity_Ah: Kapazität in Amperestunden (Ah)
+            capacity_ampere_h: Kapazität in Amperestunden (Ah)
             internal_resistance: Innenwiderstand in Ohm (Ω)
             initial_temp: Anfangstemperatur des Akkus in °C (Standard: 20.0 °C)
             cells_series: Anzahl der Zellen in Serie (Standard: 10)
@@ -48,7 +48,7 @@ class Battery(ABC):
         logger.info("Initialisiere Battery-Objekt.")
 
         self.capacity_ampere_h = capacity_ampere_h
-        self._capacity_ampere_s = capacity_ampere_h * 3600.0
+        self.capacity_ampere_s = capacity_ampere_h * 3600.0
         self.temperature = initial_temp
         self.internal_resistance = internal_resistance
         self.cells_series = cells_series
@@ -102,6 +102,7 @@ class Battery(ABC):
             float: Die aktuelle Leerlaufspannung in Volt.
         '''
         raise NotImplementedError
+
     def get_effective_resistance(self) -> float:
         '''
         Berechnet den temperaturabhängigen, effektiven Innenwiderstand des Akkus.
@@ -110,7 +111,7 @@ class Battery(ABC):
         Ausgabe:
             float: Der effektive Innenwiderstand in Ohm.
         '''
-        temp_factor = 1.0 + 0.05 * max(0, (25.0 - self.temperature))
+        temp_factor = 1.0 + 0.05 * max(0.0, (25.0 - self.temperature))
         return self.internal_resistance * temp_factor
 
     def interpolate_ocv(self, soc: float) -> float:
@@ -130,8 +131,8 @@ class Battery(ABC):
         table = self.ocv_table
 
         if not table:
-            logger.warning("OCV-Tabelle ist leer!")
-            return 0.0
+            logger.error("OCV-Tabelle ist leer! Simulation kann nicht fortgesetzt werden.")
+            raise ValueError("Die OCV-Kennlinie (ocv_table) darf nicht leer sein.")
 
         if soc <= table[0][0]:
             return table[0][1]
@@ -186,7 +187,7 @@ class Battery(ABC):
         if duration < 0:
             raise ValueError(f"Zeitspanne (duration) darf nicht negativ sein, war {duration}")
 
-        new_soc = self.soc - (current * duration) / self._capacity_ampere_s
+        new_soc = self.soc - (current * duration) / self.capacity_ampere_s
 
         # Log-Warnung und Fehlerbehandlung, falls Akku vollständig entladen oder überladen wird
         if new_soc < 0.0:
@@ -272,7 +273,7 @@ class LiPoBattery(Battery):
         Konstruktor zur Initialisierung der LiPo-Batterie.
 
         Eingabe:
-            capacity_Ah: Gesamtkapazität in Amperestunden
+            capacity_ampere_h: Gesamtkapazität in Amperestunden
             cells_parallel: Anzahl der parallel geschalteten Zellenketten
             initial_soc: Anfänglicher Ladezustand (0.0 bis 1.0)
             initial_temp: Anfangstemperatur des Akkus in °C
@@ -290,13 +291,13 @@ class LiPoBattery(Battery):
 
         # Initialisierung über die Basisklasse
         super().__init__(
-            capacity_ampere_h = capacity_ampere_h,
-            internal_resistance = internal_resistance,
-            cells_series = self.CELLS_SERIES,
-            initial_soc = initial_soc,
-            v_min = self.V_MIN,
-            v_max = self.V_MAX,
-            initial_temp = initial_temp
+            capacity_ampere_h=capacity_ampere_h,
+            internal_resistance=internal_resistance,
+            cells_series=self.CELLS_SERIES,
+            initial_soc=initial_soc,
+            v_min=self.V_MIN,
+            v_max=self.V_MAX,
+            initial_temp=initial_temp
         )
 
     def open_circuit_voltage(self) -> float:
@@ -339,7 +340,7 @@ class NMCBattery(Battery):
         Konstruktor zur Initialisierung der NMC-Batterie.
 
         Eingabe:
-            capacity_Ah: Gesamtkapazität in Amperestunden
+            capacity_ampere_h: Gesamtkapazität in Amperestunden
             cells_parallel: Anzahl der parallel geschalteten Zellenketten
             initial_soc: Anfänglicher Ladezustand (0.0 bis 1.0)
             initial_temp: Anfangstemperatur des Akkus in °C
@@ -356,13 +357,13 @@ class NMCBattery(Battery):
 
         # Initialisierung über die Basisklasse
         super().__init__(
-            capacity_ampere_h = capacity_ampere_h,
-            internal_resistance = internal_resistance,
-            cells_series = self.CELLS_SERIES,
-            initial_soc = initial_soc,
-            v_min = self.V_MIN,
-            v_max = self.V_MAX,
-            initial_temp = initial_temp
+            capacity_ampere_h=capacity_ampere_h,
+            internal_resistance=internal_resistance,
+            cells_series=self.CELLS_SERIES,
+            initial_soc=initial_soc,
+            v_min=self.V_MIN,
+            v_max=self.V_MAX,
+            initial_temp=initial_temp
         )
 
     def open_circuit_voltage(self) -> float:
@@ -392,12 +393,12 @@ if __name__ == "__main__":
 
     # Vergleich der Entladungsdynamik zwischen LiPo und NMC bei 10 A Last über 20 Minuten
     for battery in (
-        LiPoBattery(capacity_ampere_h = 15.0, initial_soc = 1.0),
-        NMCBattery(capacity_ampere_h = 15.0, initial_soc = 1.0)
-        ):
+        LiPoBattery(capacity_ampere_h=15.0, initial_soc=1.0),
+        NMCBattery(capacity_ampere_h=15.0, initial_soc=1.0)
+    ):
         print(battery)
         print(f"  OCV bei SoC = 0.5: {battery.interpolate_ocv(0.5):.2f} V")
-        battery.apply_current(current = 10.0, duration = 1200.0)
+        battery.apply_current(current=10.0, duration=1200.0)
         print(f"  Wert nach 10 A / 20 min -> {battery}")
         print(f"  Akku leer? {battery.is_empty()}")
         print(f"  Akku voll? {battery.is_full()}")
