@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
+import webbrowser
 
 from battery import LiPoBattery
 from gps_data import GPSData
@@ -13,6 +14,7 @@ from ebike_simulation import EBikeSimulation
 from ebike_config import EbikeConfig
 from motor import Motor
 from ebike_dynamics import EbikeDynamics
+from route_map import RouteMap
 from plotting_utils import (
     plot_speed_power_soc,
     plot_colored_elevation_profile,
@@ -128,6 +130,12 @@ def main() -> None:
         fig_elevation.savefig(results_dir / "hoehenprofil_farbig_plot.png",
                               dpi=300, bbox_inches='tight')
 
+        #HTML der route_map erstellen
+        route_map = RouteMap(gps_obj)
+        route = route_map.create_map()
+        output_path = Path("route_map.html").resolve()
+        route.save(str(output_path))
+
         logger.info("Diagramme wurden erfolgreich als PNG gespeichert.")
 
         # Liste der gespeicherten Bilder erstellen
@@ -147,6 +155,9 @@ def main() -> None:
         # 9. Interaktive matplotlib Benutzeroberfläche öffnen
         logger.info("Öffne interaktives Diagrammfenster...")
         plt.show()
+
+        #10. HTML der route_map im Browser öffnen
+        webbrowser.open(output_path.as_uri())
 
     except (ValueError, FileNotFoundError, RuntimeError) as e:
         logger.error("Ein kritischer Fehler ist während der Ausführung aufgetreten: %s", e)
