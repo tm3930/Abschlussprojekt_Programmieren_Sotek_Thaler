@@ -18,22 +18,22 @@ und Diagramme, eine Routen-Karte sowie ein PDF-Bericht erstellt.
 Abschlussprojekt_Programmieren_Sotek_Thaler/
 ├── src/                      #Codeverzeichnis
 │   ├── main.py               #Hauptprogramm (Startpunkt)
-│   ├── data\_from\_csv.py    #CSV lesen und validieren
-│   ├── gps\_data.py          #Strecke, Geschwindigkeit, Beschleunigung, Steigung
-│   ├── ebike\_config.py      #Bike-Parameter
-│   ├── ebike\_dynamics.py    #Fahrwiderstände und Leistung
+│   ├── data\from\csv.py    #CSV lesen und validieren
+│   ├── gps\data.py          #Strecke, Geschwindigkeit, Beschleunigung, Steigung
+│   ├── ebike\config.py      #Bike-Parameter
+│   ├── ebike\dynamics.py    #Fahrwiderstände und Leistung
 │   ├── motor.py              #Drehmoment und Motorstrom
 │   ├── battery.py            #Akku-Modell (LiPo und NMC)
-│   ├── ebike\_simulation.py  #Zusammenführung der Simulation
-│   ├── plotting\_utils.py    #Diagramme
-│   ├── route\_map.py         #Route auf Landkarte (folium)
-│   ├── ebike\_reporting.py   #PDF-Bericht (reportlab)
+│   ├── ebike\simulation.py  #Zusammenführung der Simulation
+│   ├── plotting\utils.py    #Diagramme
+│   ├── route\map.py         #Route auf Landkarte (folium)
+│   ├── ebike\reporting.py   #PDF-Bericht (reportlab)
 │   └── constants.py          #Physikalische Konstanten und Umrechnungsfaktoren
 ├── data/
 │   ├── raw/                  #Eingabedaten (CSV)
 │   └── processed/            #CSV des Simulations-Ergebnisses
 ├── results/                  #Diagramme, Routenkarte, PDF-Bericht
-├── docs/                     #Aktivitätsdiagramm
+├── docs/                     #Aktivitätsdiagramm + UML-Diagramm
 ├── requirements.txt
 └── README.md
 
