@@ -98,6 +98,7 @@ def main() -> None:
         #Summery_Stats berechnen
         summary_stats = simulation.summary(processed_data)
 
+
         #CSV Datei erstellen und diese in den richtigen Ordner speichern
         simulation.export_results(processed_data, filename="simulation_results.csv")
         logger.info("Ergebnisse wurden erfolgreich exportiert.")
@@ -109,8 +110,8 @@ def main() -> None:
         print(f"Zurückgelegte Strecke:     {summary_stats['total_distance_km']:.2f} km")
         print(f"Ø Geschwindigkeit:         {summary_stats['avg_velocity_kmh']:.1f} km/h")
         print(f"Max. Geschwindigkeit:      {summary_stats['max_velocity_kmh']:.1f} km/h")
-        print(f"Kumulierte Höhenmeter (+): {summary_stats['elevation_gain_m']:.1f} hm")
-        print(f"Kumulierte Höhenmeter (-): {summary_stats['elevation_loss_m']:.1f} hm")
+        print(f"Bergauf:                   {summary_stats['elevation_gain_m']:.1f} hm")
+        print(f"Bergab:                    {summary_stats['elevation_loss_m']:.1f} hm")
         print(f"Maximalleistung:           {summary_stats['max_power_w']:.1f} W")
         print(f"Ø Leistung:                {summary_stats['avg_power_w']:.1f} W")
         print(f"Erbrachte mech. Energie:   {summary_stats['mechanical_energy_wh']:.1f} Wh")
@@ -132,21 +133,24 @@ def main() -> None:
         #Kontrollieren, ob der Ordner existiert, falls nicht -> erstellen
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        fig_metrics = plot_speed_power_soc(processed_data)
-        fig_metrics.savefig(results_dir / "simulations_plot.png",
-                            dpi=300, bbox_inches='tight')
-
-        fig_elevation = plot_elevation_profile(processed_data)
-        fig_elevation.savefig(results_dir / "hoehenprofil_plot.png",
-                                dpi=300, bbox_inches='tight')
-
+        #Farbiges Höhenprofil
         fig_elevation_c = plot_colored_elevation_profile(processed_data)
         fig_elevation_c.savefig(results_dir / "hoehenprofil_farbig_plot.png",
                               dpi=300, bbox_inches='tight')
 
+        #Höhenprofil
+        fig_elevation = plot_elevation_profile(processed_data)
+        fig_elevation.savefig(results_dir / "hoehenprofil_plot.png",
+                                      dpi=300, bbox_inches='tight')
+
         #Thermische und elektrische Akku-Belastung
         fig_therm = plot_thermal_electrical_load(processed_data)
         fig_therm.savefig(results_dir / "thermische_elektrische_last.png", dpi=150)
+
+        #Geschwindigkeit, Leistung, Akkuladung
+        fig_metrics = plot_speed_power_soc(processed_data)
+        fig_metrics.savefig(results_dir / "simulations_plot.png",
+                            dpi=300, bbox_inches='tight')
 
         #Aufschlüsselung der Fahrwiderstände
         fig_res = plot_resistance_forces(processed_data)
@@ -177,9 +181,13 @@ def main() -> None:
 
         #Liste der gespeicherten Bilder erstellen
         plot_pfade = [
+            results_dir / "hoehenprofil_farbig_plot.png",
             results_dir / "simulations_plot.png",
-            results_dir / "hoehenprofil_plot.png",
-            results_dir / "hoehenprofil_farbig_plot.png"
+            results_dir / "thermische_elektrische_last.png",
+            results_dir / "fahrwiderstaende.png",
+            results_dir / "steigung_vs_geschwindigkeit.png",
+            results_dir / "motor_arbeitspunkte.png",
+            results_dir / "energiebilanz.png",
         ]
 
         #Zielpfad für das PDF
