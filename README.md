@@ -16,26 +16,28 @@ und Diagramme, eine Routen-Karte sowie ein PDF-Bericht erstellt.
 ```
 
 Abschlussprojekt_Programmieren_Sotek_Thaler/
-├── src/                      #Codeverzeichnis
-│   ├── main.py               #Hauptprogramm (Startpunkt)
-│   ├── data\from\csv.py    #CSV lesen und validieren
-│   ├── gps\data.py          #Strecke, Geschwindigkeit, Beschleunigung, Steigung
-│   ├── ebike\config.py      #Bike-Parameter
-│   ├── ebike\dynamics.py    #Fahrwiderstände und Leistung
-│   ├── motor.py              #Drehmoment und Motorstrom
-│   ├── battery.py            #Akku-Modell (LiPo und NMC)
-│   ├── ebike\simulation.py  #Zusammenführung der Simulation
-│   ├── plotting\utils.py    #Diagramme
-│   ├── route\map.py         #Route auf Landkarte (folium)
-│   ├── ebike\reporting.py   #PDF-Bericht (reportlab)
-│   └── constants.py          #Physikalische Konstanten und Umrechnungsfaktoren
+├── src/                                    #Codeverzeichnis
+│   ├── main.py                             #Hauptprogramm (Startpunkt)
+│   ├── data_from_csv.py                    #CSV lesen und validieren
+│   ├── gps_data.py                         #Strecke, Geschwindigkeit, Beschleunigung, Steigung
+│   ├── ebike_config.py                     #Bike-Parameter
+│   ├── ebike_dynamics.py                   #Fahrwiderstände und Leistung
+│   ├── motor.py                            #Drehmoment und Motorstrom
+│   ├── battery.py                          #Akku-Modell (LiPo und NMC)
+│   ├── ebike_simulation.py                 #Zusammenführung der Simulation
+│   ├── plotting_utils.py                   #Diagramme
+│   ├── route_map.py                        #Route auf Landkarte (folium)
+│   ├── ebike_reporting.py                  #PDF-Bericht (reportlab)
+│   └── constants.py                        #Physikalische Konstanten und Umrechnungsfaktoren
 ├── data/
-│   ├── raw/                  #Eingabedaten (CSV)
-│   └── processed/            #CSV des Simulations-Ergebnisses
-├── results/                  #Diagramme, Routenkarte, PDF-Bericht
-├── docs/                     #Aktivitätsdiagramm + UML-Diagramm
+│   ├── raw/
+        └── final_project_input_data.csv    #Eingabedaten
+│   └── processed/                          #Ausgabe der CSV des Simulations-Ergebnisses
+├── results/                                #Diagramme, Routenkarte, PDF-Bericht
+├── docs/                                   #Aktivitätsdiagramm + UML-Diagramm
 ├── requirements.txt
-└── README.md
+├── README.md
+└── LICENSE
 
 ```
 
@@ -62,13 +64,14 @@ cd Abschlussprojekt_Programmieren_Sotek_Thaler
 python -m venv .venv
 ```
 
+Windows:
 ```bash
-# Windows
 .venv\Scripts\activate
 
 ```
+
+macOS / Linux:
 ```bash
-# macOS / Linux
 source .venv/bin/activate
 ```
 
