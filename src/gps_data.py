@@ -7,10 +7,16 @@ die E-Bike-Simulation, wie die kumulierte Wegstrecke (via Haversine-Formel),
 die Momentangeschwindigkeit, die Beschleunigung sowie den lokalen Steigungswinkel.
 '''
 
+#generelle Imports
 import logging
 import numpy as np
 import pandas as pd
 
+#Imports von anderen selbstgeschriebenen Dateien
+from constants import EARTH_RADIUS_METERS
+from ebike_config import EbikeConfig
+
+#__name__ zeigt sofort an, in welcher Datei der Code gerade ausgeführt wird.
 logger = logging.getLogger(__name__)
 
 class GPSData:
@@ -18,19 +24,22 @@ class GPSData:
     Klasse zur Berechnung verschiedener Fahrdaten aus GPS-Messwerten.
     '''
 
-    def __init__(self, data: pd.DataFrame) -> None:
+    def __init__(self, data: pd.DataFrame, config: EbikeConfig = None) -> None:
         '''
         Konstruktor zum Speichern der GPS-Daten als NumPy-Arrays.
 
         Eingabe:
             data: Pandas DataFrame mit den Spalten 'lat', 'lon', 'ele', 'time' und 'temperature'
+            config: Wenn keine Übergeben wird wird automatisch EBikeConfig() verwendet
         '''
 
         logger.info("Initialisiere GPSData-Objekt.")
 
+        #Daten laden
         self.data = data
+        self.config = config if config is not None else EbikeConfig()
 
-        # Übernehmen der einzelnen Spalten in NumPy-Arrays, um später besser damit rechnen zu können
+        #Übernehmen der einzelnen Spalten in NumPy-Arrays, um später besser damit rechnen zu können
         self.data_latitude = self.data["lat"].to_numpy()
         self.data_longitude = self.data["lon"].to_numpy()
         self.data_elevation = self.data["ele"].to_numpy()
@@ -50,15 +59,15 @@ class GPSData:
 
         logger.debug("Berechne zurückgelegte Strecke mithilfe der Haversine-Formel.")
 
-        # Umwandlung von Grad in Radiant
+        #Umwandlung von Grad in Radiant
         latitude_rad = np.radians(self.data_latitude)
         longitude_rad = np.radians(self.data_longitude)
 
-        # Berechnung der Differenz zwischen zwei aufeinanderfolgenden Punkten
+        #Berechnung der Differenz zwischen zwei aufeinanderfolgenden Punkten
         delta_latitude = np.diff(latitude_rad)
         delta_longitude = np.diff(longitude_rad)
 
-        # Haversine-Formel anwenden
+        #Haversine-Formel anwenden
         a = (
             np.sin(delta_latitude / 2.0)**2
             + np.cos(latitude_rad[:-1])
@@ -66,9 +75,9 @@ class GPSData:
             * np.sin(delta_longitude / 2.0)**2
         )
         c = 2 * np.arcsin(np.sqrt(a))
-        distances = c * 6371000  # 6.371.000 Meter entspricht dem mittleren Erdradius
+        distances = c * EARTH_RADIUS_METERS  #Erdradius ist ca. 6.371.000 Meter
 
-        # Aufsummieren der einzelnen Intervalle, um die Gesamtwegstrecke zu erhalten
+        #Aufsummieren der einzelnen Intervalle, um die Gesamtwegstrecke zu erhalten
         distance_travelled = np.concatenate(([0.0], np.cumsum(distances)))
 
         logger.debug("Streckenberechnung abgeschlossen.")
@@ -88,11 +97,11 @@ class GPSData:
 
         logger.debug("Berechne Geschwindigkeit.")
 
-        # Berechnung der Differenzen zwischen zwei Punkten
+        #Berechnung der Differenzen zwischen zwei Punkten
         delta_time = np.diff(self.data_time)
         delta_distance = np.diff(distance)
 
-        # Berechnung aus Strecke / Zeit (Division durch 0 wird durch np.where abgefangen)
+        #Berechnung aus Strecke / Zeit (Division durch 0 wird durch np.where abgefangen)
         velocity_intervals = np.where(delta_time > 0, delta_distance / delta_time, 0.0)
 
         logger.debug("Geschwindigkeit erfolgreich berechnet.")
@@ -112,11 +121,11 @@ class GPSData:
 
         logger.debug("Berechne Beschleunigung.")
 
-        # Berechnung der Differenzen zwischen zwei Punkten
+        #Berechnung der Differenzen zwischen zwei Punkten
         delta_time = np.diff(self.data_time)
         delta_velocity = np.diff(velocity)
 
-        # Berechnung aus Geschwindigkeitsänderung / Zeit (Division durch 0 wird abgefangen)
+        #Berechnung aus Geschwindigkeitsänderung / Zeit (Division durch 0 wird abgefangen)
         acceleration_intervals = np.where(delta_time > 0, delta_velocity / delta_time, 0.0)
 
         logger.debug("Beschleunigung erfolgreich berechnet.")
@@ -137,15 +146,26 @@ class GPSData:
 
         logger.debug("Berechne Steigung der Strecke.")
 
-        # Berechnung der Differenzen zwischen zwei Punkten
+        #Berechnung der Differenzen zwischen zwei Punkten
         delta_distance = np.diff(distance)
         delta_elevation = np.diff(self.data_elevation)
 
-        # Verhältnis zwischen Höhenänderung und Distanzänderung bestimmen
-        # np.clip begrenzt das Verhältnis auf plausible Werte zwischen -100% und +100% Steigung
+        #Nur dort Berechnungen machen, wo er sich auch bewegt
+        valid_dist = delta_distance > 0
         ratio = np.zeros_like(delta_elevation)
-        valid = delta_distance > 0
-        ratio[valid] = np.clip(delta_elevation[valid] / delta_distance[valid], -1, 1)
+        ratio[valid_dist] = delta_elevation[valid_dist] / delta_distance[valid_dist]
+
+        #Kontrolle ob Steigungen unrealistisch sind
+        unrealistic_mask = np.abs(ratio) > self.config.max_slope_limit
+
+        if np.any(unrealistic_mask):
+            anzahl_fehler = np.sum(unrealistic_mask)
+            logger.warning(
+                "Validierungswarnung: Es wurden %d unrealistische Steigungs-Sprünge "
+                "(>%.0f%%) festgestellt. Das deutet auf temporäre GPS-Messfehler hin.",
+                anzahl_fehler,
+                self.config.max_slope_limit * 100
+            )
 
         # Lokalen Steigungswinkel über den Arcustangens bestimmen
         incline_intervals = np.arctan(ratio)
@@ -163,19 +183,29 @@ class GPSData:
 if __name__ == "__main__":
     import sys
 
-    # Logging für den lokalen Testlauf einrichten
+    #Logging System einrichten:
+    log_format = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+
+    #Output im Terminal dort werden nur INFOs, WARNINGs, ... angezeigt
+    terminal_output = logging.StreamHandler(sys.stdout)
+    terminal_output.setLevel(logging.INFO)
+    terminal_output.setFormatter(log_format)
+
+    #Output im Document: app.log: Hier werden auch alle DEBUGs angezeigt
+    #hier können Fehler schnell identifiziert werden und im Code gefunden werden
+    file_output = logging.FileHandler("app.log", mode="a", encoding="utf-8")
+    file_output.setLevel(logging.DEBUG)
+    file_output.setFormatter(log_format)
+
+    #Einrichtung Protokollierungssystem für Logging (alle DEBUGs werden aufgezeichnet)
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler("app.log", mode="a", encoding="utf-8"),
-        ],
+        level=logging.DEBUG,
+        handlers=[terminal_output, file_output]
     )
 
     logger.info("Starte gps_data Datei...")
 
-    # Künstliche Testdaten erstellen (3 Wegpunkte auf dem Fahrrad)
+    #Künstliche Testdaten erstellen (3 Wegpunkte auf dem Fahrrad)
     test_data = pd.DataFrame(
         {
             "time": [0.0, 5.0, 10.0],
@@ -188,13 +218,13 @@ if __name__ == "__main__":
 
     gps_calculator = GPSData(test_data)
 
-    # Physikalische und kinematische Kennwerte berechnen
+    #Physikalische und kinematische Kennwerte berechnen
     strecke = gps_calculator.get_distance()
     geschwindigkeit = gps_calculator.get_velocity(strecke)
     beschleunigung = gps_calculator.get_acceleration(geschwindigkeit)
     steigung = gps_calculator.get_incline(strecke)
 
-    # Ergebnisse übersichtlich zusammenführen und anzeigen
+    #Ergebnisse übersichtlich zusammenführen und anzeigen
     ergebnisse = pd.DataFrame(
         {
             "Zeit [s]": test_data["time"],
@@ -205,6 +235,6 @@ if __name__ == "__main__":
         }
     )
 
-    print("\n================ BERECHNETE FAHRDATEN ================")
+    print("\n=== BERECHNETE FAHRDATEN ===")
     print(ergebnisse.to_string(index=False))
-    print("======================================================\n")
+    print("=== BERECHNETE FAHRDATEN ===\n")
