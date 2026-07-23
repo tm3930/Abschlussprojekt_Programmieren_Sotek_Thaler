@@ -34,7 +34,11 @@ Abschlussprojekt_Programmieren_Sotek_Thaler/
         └── final_project_input_data.csv    #Eingabedaten
 │   └── processed/                          #Ausgabe der CSV des Simulations-Ergebnisses
 ├── results/                                #Diagramme, Routenkarte, PDF-Bericht
-├── docs/                                   #Aktivitätsdiagramm + UML-Diagramm
+├── docs/                                   #Aktivitätsdiagramm + UML-Klassendiagramm
+    ├── aktivitaetsdiagramm.pdf
+    ├── aktivitaetsdiagramm.png
+    ├── uml_diagramm.pdf
+    └── uml_diagramm.png                                   
 ├── requirements.txt
 ├── README.md
 └── LICENSE
