@@ -4,3 +4,4 @@ pandas
 pathlib
 numba
 reportlab
+folium
