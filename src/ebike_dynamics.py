@@ -8,8 +8,11 @@ Rollwiderstand und Hangabtriebskraft) sowie die daraus resultierende
 mechanische Gesamtleistung des Systems.
 '''
 
+#generelle Imports
 import logging
 import numpy as np
+
+#Imports von anderen selbstgeschriebenen Dateien
 from ebike_config import EbikeConfig
 from constants import (
     GRAVITY,
@@ -20,6 +23,7 @@ from constants import (
     GAS_CONSTANT_AIR,
 )
 
+#__name__ zeigt sofort an, in welcher Datei der Code gerade ausgeführt wird.
 logger = logging.getLogger(__name__)
 
 class EbikeDynamics:
@@ -27,7 +31,7 @@ class EbikeDynamics:
     Klasse zur mathematischen Beschreibung der E-Bike-Dynamik und Kraftberechnungen.
     '''
 
-    def __init__(self, config: EbikeConfig = None):
+    def __init__(self, config: EbikeConfig = None) -> None:
         '''
         Initialisierung der Dynamik-Klasse.
         
@@ -38,7 +42,6 @@ class EbikeDynamics:
 
         logger.info("Initialisiere EbikeDynamics-Objekt.")
 
-        # Falls keine Config übergeben wird, wird eine frische Standard-Config erstellt
         self.config = config if config is not None else EbikeConfig()
 
     def get_drag_force(
@@ -61,20 +64,18 @@ class EbikeDynamics:
         '''
         logger.debug("Berechne Luftwiderstandskraft mit dynamischer Luftdichte")
 
-        # Temperatur in Kelvin umrechnen
+        #Temperatur in Kelvin umrechnen
         t_kelvin = temperature + STD_TEMP_KELVIN
 
-        # Luftdruck in Abhängigkeit der Höhe (barometrische Höhenformel)
+        #Luftdruck in Abhängigkeit der Höhe (barometrische Höhenformel)
         pressure_exponent = GRAVITY / (GAS_CONSTANT_AIR * TEMP_LAPSE_RATE)
 
         p = STD_PRESSURE * (
             1 - (TEMP_LAPSE_RATE * elevation) / SEA_LEVEL_TEMP
         ) ** pressure_exponent
 
-        # 3. Luftdichte rho nach der idealen Gasgleichung berechnen
-        # R_s = 287.05 J/(kg*K) ist die spezifische Gaskonstante für trockene Luft
+        #Luftdichte rho nach der idealen Gasgleichung berechnen
         rho = p / (GAS_CONSTANT_AIR * t_kelvin)
-
         a = rho * self.config.cw_and_area / 2
 
         logger.debug("Luftwiderstandskraft Berechnung abgeschlossen")
@@ -84,7 +85,6 @@ class EbikeDynamics:
     def get_rolling_resistance(self, incline: np.ndarray) -> np.ndarray:
         '''
         Funktion zur Berechnung der Rollwiderstandskraft auf Basis des Steigungswinkels.
-        Formel: F_R = m * g * cos(alpha) * c_r
 
         Eingabe:
             incline: NumPy-Array mit den Steigungswinkeln in Bogenmaß (rad)
@@ -92,6 +92,8 @@ class EbikeDynamics:
         Ausgabe:
             np.ndarray: Array mit den berechneten Rollwiderstandskräften in Newton
         '''
+
+        logger.debug("Berechne Rollwiderstandskraft")
 
         return self.config.total_mass * GRAVITY * np.cos(incline) * self.config.c_r
 
@@ -169,19 +171,29 @@ class EbikeDynamics:
 if __name__ == "__main__":
     import sys
 
-    # Logging einrichten
+    #Logging System einrichten:
+    log_format = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+
+    #Output im Terminal dort werden nur INFOs, WARNINGs, ... angezeigt
+    terminal_output = logging.StreamHandler(sys.stdout)
+    terminal_output.setLevel(logging.INFO)
+    terminal_output.setFormatter(log_format)
+
+    #Output im Document: app.log: Hier werden auch alle DEBUGs angezeigt
+    #hier können Fehler schnell identifiziert werden und im Code gefunden werden
+    file_output = logging.FileHandler("app.log", mode="a", encoding="utf-8")
+    file_output.setLevel(logging.DEBUG)
+    file_output.setFormatter(log_format)
+
+    #Einrichtung Protokollierungssystem für Logging (alle DEBUGs werden aufgezeichnet)
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler("app.log", mode="a", encoding="utf-8"),
-        ],
+        level=logging.DEBUG,
+        handlers=[terminal_output, file_output]
     )
 
     logger.info("Starte ebike_dynamics Datei...")
 
-    # Konfiguration mit spezifischen Testwerten aufsetzen
+    #Konfiguration mit spezifischen Testwerten aufsetzen
     config_test = EbikeConfig()
     config_test.bike_mass, config_test.rider_mass, config_test.cw_and_area = 20.0, 80.0, 0.6
 
@@ -203,12 +215,12 @@ if __name__ == "__main__":
     power = dynamics.get_power(f_total, v)
 
     # Übersichtliche Text-Ausgabe im Terminal
-    print("\n========== BERECHNETE KRÄFTE & LEISTUNGEN ===========")
+    print("\n=== BERECHNETE KRÄFTE & LEISTUNGEN ===")
     print("Luftwiderstand [N]: ", np.round(f_drag, 1))
     print("Rollwiderstand [N]: ", np.round(f_roll, 1))
     print("Hangabtrieb [N]:    ", np.round(f_inc, 1))
     print("Gesamtkraft [N]:    ", np.round(f_total, 1))
     print("Leistung [Watt]:    ", np.round(power, 1))
-    print("======================================================\n")
+    print("=== BERECHNETE KRÄFTE & LEISTUNGEN ===\n")
 
     logger.info("Überprüfung erfolgreich abgeschlossen.")

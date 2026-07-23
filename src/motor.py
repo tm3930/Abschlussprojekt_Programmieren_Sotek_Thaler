@@ -7,11 +7,15 @@ rotatorisches Drehmoment am Rad übersetzt und daraus den korrespondierenden
 Motorstrom über die Motorkonstante (Km) berechnet.
 '''
 
+#generelle Imports
 import logging
-import sys
 import numpy as np
+
+#Imports von anderen selbstgeschriebenen Dateien
 from ebike_config import EbikeConfig
 
+
+#__name__ zeigt sofort an, in welcher Datei der Code gerade ausgeführt wird.
 logger = logging.getLogger(__name__)
 
 
@@ -30,10 +34,10 @@ class Motor:
         '''
         logger.info("Initialisiere Motor-Objekt.")
 
-        # Falls keine Konfiguration übergeben wurde, Standardwerte laden
+        #Falls keine Konfiguration übergeben wurde, Standardwerte laden
         self.config = config if config is not None else EbikeConfig()
 
-        # Validierung der physikalischen Parameter und Fehlerbehandlung
+        #Validierung der physikalischen Parameter und Fehlerbehandlung
         if self.config.motor_constant <= 0:
             raise ValueError(
                 f"Motorkonstante muss größer als 0 sein, aktuell: {self.config.motor_constant}"
@@ -41,7 +45,7 @@ class Motor:
         if self.config.radius <= 0:
             raise ValueError(f"Radradius muss größer als 0 sein, aktuell: {self.config.radius}")
 
-        # Logging über die erfolgreich gesetzten Motor- und Radparameter
+        #Logging über die erfolgreich gesetzten Motor- und Radparameter
         logger.debug(
             "Motorwerte: Motorkonstante = %s Nm/A, Radius des Rads = %.2f m", 
             self.config.motor_constant,
@@ -64,7 +68,6 @@ class Motor:
     def current(self, torque: float | np.ndarray) -> float | np.ndarray:
         '''
         Berechnet den benötigten Motorstrom für ein gegebenes Drehmoment.
-        Die Berechnung basiert auf der linearen Beziehung: I = T / Km
 
         Eingabe:
             torque: Das Drehmoment in Newtonmetern (Nm) als Skalar oder NumPy-Array.
@@ -94,14 +97,26 @@ class Motor:
 
 
 if __name__ == "__main__":
-    # Logging für den lokalen Funktionstest konfigurieren
+    import sys
+
+    #Logging System einrichten:
+    log_format = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+
+    #Output im Terminal dort werden nur INFOs, WARNINGs, ... angezeigt
+    terminal_output = logging.StreamHandler(sys.stdout)
+    terminal_output.setLevel(logging.INFO)
+    terminal_output.setFormatter(log_format)
+
+    #Output im Document: app.log: Hier werden auch alle DEBUGs angezeigt
+    #hier können Fehler schnell identifiziert werden und im Code gefunden werden
+    file_output = logging.FileHandler("app.log", mode="a", encoding="utf-8")
+    file_output.setLevel(logging.DEBUG)
+    file_output.setFormatter(log_format)
+
+    #Einrichtung Protokollierungssystem für Logging (alle DEBUGs werden aufgezeichnet)
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler("app.log", mode="a", encoding="utf-8"),
-        ],
+        level=logging.DEBUG,
+        handlers=[terminal_output, file_output]
     )
 
     logger.info("Starte Motor Datei...")
@@ -114,21 +129,21 @@ if __name__ == "__main__":
     T_test = motor.get_torque(F_TEST)
     I_test = motor.current(T_test)
 
-    print("\n================ BERECHNETE MOTORDATEN ================")
+    print("\n=== BERECHNETE MOTORDATEN ===")
     print(motor)
     print(f"Kraft F          = {F_TEST:.0f} N")
     print(f"Drehmoment T     = {T_test:.2f} Nm")
     print(f"Motorstrom I     = {I_test:.2f} A")
 
-    # Koppelungstest mit dem Batteriemodell (20 Minuten Fahrt simulieren)
+    #Koppelungstest mit dem Batteriemodell (20 Minuten Fahrt simulieren)
     try:
-        from battery import LiPoBattery
+        from battery import NMCBattery
 
-        battery_test = LiPoBattery(capacity_ampere_h=15.0, initial_soc=1.0)
+        battery_test = NMCBattery()
         battery_test.apply_current(current=I_test, duration=1200.0)
-        print("-------------------------------------------------------")
+        print("------")
         print(battery_test)
     except ImportError:
         logger.warning("Battery-Klasse konnte für den Selbsttest nicht geladen werden.")
 
-    print("======================================================\n")
+    print("=== BERECHNETE MOTORDATEN ===\n")

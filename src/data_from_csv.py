@@ -7,12 +7,14 @@ Plausibilitätsprüfungen für Koordinaten, Höhenprofile und Temperaturen durch
 um fehlerhafte Datensätze vorab herauszufiltern.
 '''
 
+#allgemeine Imports
 from pathlib import Path
 import logging
 import sys
 import numpy as np
 import pandas as pd
 
+#__name__ zeigt sofort an, in welcher Datei der Code gerade ausgeführt wird.
 logger = logging.getLogger(__name__)
 
 def get_data_from_csv(csv_name: str) -> pd.DataFrame:
@@ -36,18 +38,19 @@ def get_data_from_csv(csv_name: str) -> pd.DataFrame:
         parse_dates=["time"]        #parse_dates = Zeit direkt als datetime einlesen
     )
 
+    #Daten auf Korrektheit überprüfen:
+    if not validate(data):
+        #Wenn validate() einen Fehler erkennt wird das Programm abgebrochen
+        logger.error("Programm abgebrochen aufgrund fehlerhafter Daten.")
+        raise ValueError("Die hochgeladenen CSV-Daten sind ungültig. Siehe 'app.log' für Details.")
+
     #Zeit umrechnen, sodass Sekunden von 0 bis zum Ende gemessen werden (0, 1, 5, 125, ...)
     #von jeder Zeile wird der allererste Zeitstempel (.iloc[0]) abgezogen
     data["time"] = (data["time"] - data["time"].iloc[0]).dt.total_seconds()
 
-    #Daten auf Korrektheit überprüfen:
-    if not validate(data):
-        #Wenn validate() einen Fehler erkennt wird das Programm abgebrochen
-        #Details in die app.log Datei hineingeschrieben
-        logger.error("Programm abgebrochen aufgrund fehlerhafter Daten.")
-        raise ValueError("Die hochgeladenen CSV-Daten sind ungültig. Siehe 'app.log' für Details.")
     #Wenn kein Fehler erkannt wird, dann wird dies notiert und der Code wird weiter ausgeführt
     logger.info("Daten erfolgreich verifiziert und bereit zur Verarbeitung.")
+
     return data
 
 
@@ -89,20 +92,9 @@ def validate(df: pd.DataFrame) -> bool:
     #Kontrolle ob sich alle Höhendaten zwischen -10 Höhenmetern und +3000 Höhenmetern befinden
     if not df["ele"].between(-10, 3000).all():
         logger.error(
-            "Validierungsfehler: Unplausible Höhenwerte fürs Radfahren außerhalb von -10m bis 3000m"
+            "Validierungsfehler: Unplausible Höhenwerte fürs Radfahren außerhalb von -10 bis 3000hm"
         )
         return False
-
-    #Kontrolle ob es unrealistische Höhen-Sprünge (GPS-Ausreißer) gibt
-    #mehr als 20 Meter Veränderung von einem zum nächsten Punkt
-    delta_ele = np.abs(np.diff(df["ele"].to_numpy()))
-    if np.any(delta_ele > 20):
-        anzahl_fehler = np.sum(delta_ele > 20)
-        logger.warning(
-            "Validierungswarnung: Es wurden %d extreme Höhen-Sprünge (>20m) festgestellt. " \
-            "Das deutet auf temporäre GPS-Messfehler hin.",
-            anzahl_fehler
-        )
 
     #Kontrolle ob für die Temperatur realistische Werte vorhanden sind zwischen -20 und +45 Grad
     if not df["temperature"].between(-20, 45).all():
@@ -111,16 +103,16 @@ def validate(df: pd.DataFrame) -> bool:
         )
         return False
 
-    #Kontrolle ob die Zeiten immer aufsteigend sind
-    delta_time = np.diff(df["time"].to_numpy())
+    #Zeitdifferenz berechnen für einfacheren Vergleich der Zeiten
+    time_diff = df["time"].diff().dt.total_seconds().to_numpy()
 
-    #Kontrolle ob sie still steht
-    if np.any(delta_time == 0):
+    #Kontrolle ob die Zeit irgendwann still steht
+    if np.any(time_diff == 0):
         logger.error("Validierungsfehler: Es gibt identische Zeitstempel (Zeitabschnitt ist 0s).")
         return False
 
-    #Kontrolle ob sie rückwerts läuft
-    if np.any(delta_time < 0):
+    #Kontrolle ob die Zeit irgendwann rückwerts läuft
+    if np.any(time_diff < 0):
         logger.error("Validierungsfehler: Die Zeitliste ist nicht chronologisch aufsteigend.")
         return False
 
@@ -133,29 +125,36 @@ def validate(df: pd.DataFrame) -> bool:
 #Wird nur ausgeführt wenn direkt die Datei ausgeführt wird.
 if __name__ == "__main__":
 
-    #Logging einrichten:
+    #Logging System einrichten:
+    log_format = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+
+    #Output im Terminal dort werden nur INFOs, WARNINGs, ... angezeigt
+    terminal_output = logging.StreamHandler(sys.stdout)
+    terminal_output.setLevel(logging.INFO)
+    terminal_output.setFormatter(log_format)
+
+    #Output im Document: app.log: Hier werden auch alle DEBUGs angezeigt
+    #hier können Fehler schnell identifiziert werden und im Code gefunden werden
+    file_output = logging.FileHandler("app.log", mode="a", encoding="utf-8")
+    file_output.setLevel(logging.DEBUG)
+    file_output.setFormatter(log_format)
+
+    #Einrichtung Protokollierungssystem für Logging (alle DEBUGs werden aufgezeichnet)
     logging.basicConfig(
-        level=logging.INFO, #bedeutet, dass Info, Warning, Error und Critical mitgeschrieben wird
-        #format schreibt Zeit [Info / ...] und dann die Nachricht
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            #Ausgabe im Terminal:
-            logging.StreamHandler(sys.stdout),
-            #Ausgabe in eigener Logging Datei
-            logging.FileHandler("app.log", mode="a", encoding="utf-8")
-        ]
+        level=logging.DEBUG,
+        handlers=[terminal_output, file_output]
     )
 
     logger.info("Starte data_from_csv Datei...")
 
     try:
         #Daten laden
-        gps = get_data_from_csv("final_project_input_data.csv")
+        gps_data = get_data_from_csv("final_project_input_data.csv")
 
         #Kurze Vorschau der Daten im Terminal anzeigen
-        print("\n--- Daten-Vorschau (erste 5 Zeilen) ---")
-        print(gps.head())
-        print("---------------------------------------\n")
+        print("\n=== Data from CSV ===")
+        print(gps_data.head())
+        print("=== Data from CSV ===\n")
 
     except ValueError as e:
         logger.error("Ausführung gestoppt: %s", e)
