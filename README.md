@@ -1,6 +1,6 @@
 # E-Bike Simulation
 
-Abschlussprojekt **Programmieren 1** (MCI BA-MECH, SS 2026) — Sotek \& Thaler
+Abschlussprojekt **Programmieren 1** (MCI BA-MECH, SS 2026) — Šotek \& Thaler
 
 Python-Anwendung zur Auslegung eines E-Bikes anhand realer GPS-Daten.
 Anhand von zeitabhängigen Koordinaten und Höhenangaben werden Geschwindigkeit, Beschleunigung,
@@ -63,7 +63,7 @@ python -m venv .venv
 
 ```bash
 # Windows
-.venv\\Scripts\\activate
+.venv\Scripts\activate
 
 ```
 ```bash
@@ -183,7 +183,7 @@ können dort für eigene Untersuchungen geändert werden:
 
 ```python
 from battery import NMCBattery
-battery = NMCBattery(config=config, initial\\\_temp=start\\\_temp)
+battery = NMCBattery(config=config, initial\_temp=start\_temp)
 ```
 
 \---
@@ -219,7 +219,7 @@ kompiliert, um die Rechenzeit zu reduzieren
 
 ## Autoren
 
-Simon Sotek \& Markus Thaler — MCI, BA-MECH25
+Šimon Šotek \& Markus Thaler — MCI, BA-MECH25
 
 \---
 
