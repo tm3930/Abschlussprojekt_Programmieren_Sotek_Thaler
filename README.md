@@ -10,37 +10,36 @@ der Ladestand (SoC) und die Temperatur des Akkus über die gesamte Fahrt simulie
 
 und Diagramme, eine Routen-Karte sowie ein PDF-Bericht erstellt.
 
-\---
 
 ## Projektstruktur
 
 ```
 
-Abschlussprojekt\_Programmieren\_Sotek\_Thaler/
-├── src/                     #Codeverzeichnis
-│   ├── **main.py              #Hauptprogramm (Startpunkt)**
-│   ├── data\_from\_csv.py     #CSV lesen und validieren
+Abschlussprojekt_Programmieren_Sotek_Thaler/
+├── src/                      #Codeverzeichnis
+│   ├── main.py               #Hauptprogramm (Startpunkt)
+│   ├── data\_from\_csv.py    #CSV lesen und validieren
 │   ├── gps\_data.py          #Strecke, Geschwindigkeit, Beschleunigung, Steigung
 │   ├── ebike\_config.py      #Bike-Parameter
 │   ├── ebike\_dynamics.py    #Fahrwiderstände und Leistung
-│   ├── motor.py             #Drehmoment und Motorstrom
-│   ├── battery.py           #Akku-Modell (LiPo und NMC)
+│   ├── motor.py              #Drehmoment und Motorstrom
+│   ├── battery.py            #Akku-Modell (LiPo und NMC)
 │   ├── ebike\_simulation.py  #Zusammenführung der Simulation
 │   ├── plotting\_utils.py    #Diagramme
 │   ├── route\_map.py         #Route auf Landkarte (folium)
 │   ├── ebike\_reporting.py   #PDF-Bericht (reportlab)
-│   └── constants.py         #Physikalische Konstanten und Umrechnungsfaktoren
+│   └── constants.py          #Physikalische Konstanten und Umrechnungsfaktoren
 ├── data/
-│   ├── raw/                 #Eingabedaten (CSV)
-│   └── processed/           #CSV des Simulations-Ergebnisses
-├── results/                 #Diagramme, Routenkarte, PDF-Bericht
-├── docs/                    #Aktivitätsdiagramm
+│   ├── raw/                  #Eingabedaten (CSV)
+│   └── processed/            #CSV des Simulations-Ergebnisses
+├── results/                  #Diagramme, Routenkarte, PDF-Bericht
+├── docs/                     #Aktivitätsdiagramm
 ├── requirements.txt
 └── README.md
 
 ```
 
-\---
+
 
 ## Installationen
 
@@ -48,11 +47,13 @@ Python **3.10** oder neuer
 
 
 
-**1. Repository klonen**
+**1. Repository klonen und in das Verzeichnis gehen**
 
 ```bash
-git clone https://github.com/tm3930/Abschlussprojekt\_Programmieren\_Sotek\_Thaler.git
-cd Abschlussprojekt\_Programmieren\_Sotek\_Thaler
+git clone https://github.com/tm3930/Abschlussprojekt_Programmieren_Sotek_Thaler.git
+```
+```bash
+cd Abschlussprojekt_Programmieren_Sotek_Thaler
 ```
 
 **2. Virtuelle Umgebung anlegen und aktivieren** (optional, empfehlenswert)
@@ -83,11 +84,11 @@ Installiert werden: `numpy`, `pandas`, `matplotlib`, `numba`, `folium` und `repo
 
 **4. Eingabedaten bereitstellen**
 
-Die Datei `final\_project\_input\_data.csv` muss unter `data/raw/` liegen.
+Die Datei `final_project_input_data.csv` muss unter `data/raw/` liegen.
 Erwartetes Format: Semikolon als Trennzeichen, Spalten `lat`, `lon`, `ele`, `time`,
 `temperature`.
 
-\---
+
 
 ## Ausführung
 
@@ -103,9 +104,9 @@ Das Programm läuft vollständig automatisch durch und erzeugt:
 |-|-|
 |Zusammenfassung der Fahrt|Konsole|
 |Diagramme (8 PNG-Dateien)|results/|
-|Interaktive Routenansicht auf Landkarte|results/route\_map.html|
-|PDF-Bericht|results/ebike\_simulation\_analyse.pdf|
-|Ergebnisdaten|data/processed/simulation\_results.csv|
+|Interaktive Routenansicht auf Landkarte|results/route_map.html|
+|PDF-Bericht|results/ebike\_simulation_analyse.pdf|
+|Ergebnisdaten|data/processed/simulation_results.csv|
 |Protokoll/Log|app.log|
 
 
@@ -122,15 +123,18 @@ Jedes Modul lässt sich nach Bedarf einzeln testen. Beispiel:
 python src/motor.py
 ```
 
-\---
 
-## Softwarestruktur/Aktivitätsdiagramm
 
-Der gesamte Ablauf der Simulation ist in einem Aktivitätsdiagramm dargestellt unter:
+## Softwarestruktur
 
-`docs/aktivitaetsdiagramm.pdf)`
+Der gesamte Ablauf der Simulation ist in einem Aktivitätsdiagramm im Ordner `docs/` dargestellt:
 
-\---
+[![Aktivitätsdiagramm](docs/aktivitaetsdiagramm.png)](docs/aktivitaetsdiagramm.pdf)
+
+Außerdem ist in einem UML-Diagramm im Ordner `docs/` die Klassentruktur dargestellt:
+
+[![UML_Diagramm](docs/uml_diagramm.png)](docs/uml_diagramm.pdf)
+
 
 ## Physikalische Formeln
 
@@ -152,11 +156,11 @@ Der gesamte Ablauf der Simulation ist in einem Aktivitätsdiagramm dargestellt u
 
 
 
-\---
+
 
 ## Konfiguration
 
-Alle Parameter sind zentral in `src/ebike\_config.py` ('EbikeConfig') hinterlegt und
+Alle Parameter sind zentral in `src/ebike_config.py` ('EbikeConfig') hinterlegt und
 können dort für eigene Untersuchungen geändert werden:
 
 |**Parameter**|**Standard**|**Bedeutung**|
@@ -183,10 +187,10 @@ können dort für eigene Untersuchungen geändert werden:
 
 ```python
 from battery import NMCBattery
-battery = NMCBattery(config=config, initial\_temp=start\_temp)
+battery = NMCBattery(config=config, initial_temp=start_temp)
 ```
 
-\---
+
 
 ## Erweiterungen
 
@@ -215,13 +219,13 @@ Temperaturen und nicht aufsteigende Zeitstempel
 kompiliert, um die Rechenzeit zu reduzieren
 * **Ergebnis-Export** — alle berechneten Größen als CSV in `data/processed/`
 
-\---
+
 
 ## Autoren
 
 Šimon Šotek \& Markus Thaler — MCI, BA-MECH25
 
-\---
+
 
 ## Lizenz
 
