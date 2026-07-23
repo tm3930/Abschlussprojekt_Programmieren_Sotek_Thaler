@@ -67,11 +67,12 @@ def _run_simulation(
         dt = times[i+1] - times[i]
         motor_current = motor_current_arr[i+1]
 
+        dumped_power: float = 0.0
+
         #Bestimmung des effektiven Akku-Stroms
         if motor_current > 0.0:  #Entladen
             ideal_battery_current = motor_current / params.efficiency
             battery_current = min(ideal_battery_current, params.max_discharge_current)
-            dissipated_power_profile[i+1] = 0.0
 
         elif motor_current < 0.0:  #Laden / Rekuperation
             ideal_charge_current = abs(motor_current) * params.efficiency
@@ -90,21 +91,24 @@ def _run_simulation(
             ocv = np.interp(curr_soc, ocv_table[:, 0], ocv_table[:, 1])
 
             #Effektiver Innenwiderstand & Klemmspannung
-            temp_factor = 1.0 + params.temp_coeff_resistance * max(0.0, 25.0 - curr_temp)
-            effective_r = params.internal_resistance * temp_factor
-            terminal_voltage = ocv - effective_r * battery_current
+            temp_factor_tmp = 1.0 + params.temp_coeff_resistance * max(0.0, 25.0 - curr_temp)
+            eff_r_tmp = params.internal_resistance * temp_factor_tmp
+            terminal_voltage = ocv - eff_r_tmp * battery_current
 
-            #Nicht nutzbare Rekuperationsleistung aufzeichnen
+            #Weggeregelte Leistung (Verlust an Bremsen)
             uncapped_lost_current = ideal_charge_current - effective_charge
-            dissipated_power_profile[i+1] = uncapped_lost_current * terminal_voltage
+            dumped_power = uncapped_lost_current * terminal_voltage
 
         else:
             battery_current = 0.0
-            dissipated_power_profile[i+1] = 0.0
 
         #Thermik-Update
         temp_factor = 1.0 + params.temp_coeff_resistance * max(0.0, 25.0 - curr_temp)
         effective_r = params.internal_resistance * temp_factor
+
+        battery_heat_power = battery_current ** 2 * effective_r
+
+        dissipated_power_profile[i+1] = battery_heat_power + dumped_power
 
         curr_temp += (env_temp[i] - curr_temp) * params.cooling_coeff * dt
         curr_temp += (battery_current**2 * effective_r * dt) / params.thermal_mass
@@ -302,7 +306,10 @@ class EBikeSimulation:
         end_soc = data["soc"].iloc[-1] * 100.0
         soc_consumed = start_soc - end_soc
 
-        discharged_energy_wh = (soc_consumed / 100.0) * self.battery.capacity_ampere_h * self.battery.open_circuit_voltage()
+        discharged_energy_wh = ((soc_consumed / 100.0)
+            * self.battery.capacity_ampere_h
+            * self.battery.open_circuit_voltage()
+        )
 
         stats = {
             "total_time_s": float(total_time_s),
